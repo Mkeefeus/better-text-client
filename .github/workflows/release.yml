@@ -104,6 +104,43 @@ jobs:
           # The project uses bun; this runs the tauri CLI from package.json.
           tauriScript: bun run tauri
 
+      # Extra downloads that need no installer, both x86_64 (the only architecture built):
+      #
+      #   Windows  The bare executable, with the interface embedded in it. It needs the WebView2
+      #            runtime, which Windows 11 and up-to-date Windows 10 include; the installers
+      #            download it when missing, but a bare executable cannot.
+      #   Linux    A .tar.gz with the bare executable and a README (packaging/linux/README.txt). It
+      #            uses the system's WebKitGTK, unlike the AppImage that tauri-action uploads,
+      #            which carries its own and suits systems that lack it.
+      #
+      # Uploaded through the documented REST endpoint using the release id, because the release is
+      # still a draft here and drafts cannot be looked up by tag.
+      - name: Upload the portable builds
+        shell: bash
+        env:
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: |
+          version=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            name="better-text-client_${version}_x64-portable.exe"
+            cp src-tauri/target/release/better-text-client.exe "$name"
+          else
+            dir="better-text-client_${version}_linux_x86_64"
+            name="${dir}.tar.gz"
+            mkdir "$dir"
+            cp src-tauri/target/release/better-text-client "$dir/"
+            cp packaging/linux/README.txt "$dir/README.txt"
+            # Fixed ownership, so the archive does not carry the runner's user ids.
+            tar --owner=0 --group=0 --numeric-owner -czf "$name" "$dir"
+            tar -tzvf "$name" # shows what went in, in the log
+          fi
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${name}" \
+            "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${name}"
+
   # Runs only if every build succeeded; turns the draft into a public release.
   publish:
     needs: [create-release, build]

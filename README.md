@@ -16,12 +16,20 @@ The official text client can lag, especially while its window is being resized. 
 
 ## Install
 
-Installers are published on the [Releases](../../releases) page:
+Downloads are on the [Releases](../../releases) page. Everything is built for 64-bit x86 (x86_64 / amd64); there are no 32-bit or ARM builds.
 
-- **Windows:** `.exe` and `.msi` installers.
-- **Linux:** `.deb`, `.rpm` and AppImage packages.
+**Installers**
 
-The installers are not code-signed, so Windows SmartScreen may warn you before running them.
+- **Windows:** `-setup.exe` and `.msi` installers.
+- **Linux:** `.deb` and `.rpm` packages.
+
+**Portable (nothing to install, run it from anywhere, delete it to remove it)**
+
+- **Windows:** `better-text-client_<version>_x64-portable.exe`. It needs the Microsoft Edge WebView2 runtime, which Windows 11 and up-to-date Windows 10 already have. The installers download it if it is missing; the portable file cannot, so on an older Windows 10 install the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/) first. It still keeps your saved server address and slot name in your user profile, not next to the executable.
+- **Linux, AppImage:** `better-text-client_<version>_amd64.AppImage` (about 77 MB). It carries its own web engine, so it runs on most distributions with nothing else installed. Make it executable (`chmod +x`) and run it. If your system lacks FUSE 2, run it with `--appimage-extract-and-run`.
+- **Linux, tar.gz:** `better-text-client_<version>_linux_x86_64.tar.gz` (about 2 MB). Extract it and run `./better-text-client`. It is the bare executable, so it uses your system's WebKitGTK 4.1 instead of carrying its own: install `libwebkit2gtk-4.1-0` (Debian, Ubuntu), `webkit2gtk4.1` (Fedora) or `webkit2gtk-4.1` (Arch) if you do not have it. It is built on Ubuntu 22.04, so it needs glibc 2.35 or newer. The archive includes a README with the same notes. Use the AppImage if this does not work on your system.
+
+None of the downloads are code-signed, so Windows SmartScreen may warn you before running them.
 
 ## Using it
 
