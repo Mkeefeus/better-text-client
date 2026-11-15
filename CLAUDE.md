@@ -34,9 +34,9 @@ Three layers under `src/`, with a strict direction:
 adapter/archipelago.ts  ->  state/*  ->  ui/*
 ```
 
-- **`adapter/archipelago.ts` is the only file allowed to import `archipelago.js`.** It converts the library's objects into the plain records in `state/types.ts` (`Message`, `Span`, `HintRow`, `RosterEntry`). Never put library class instances into state or components.
-- **`state/`** holds module-level Solid signals (`messages.ts`, `hints.ts`, `connection.ts`) plus `style.ts` (flag/status to CSS class helpers). Filter and sort state for hints also lives here so it survives tab switches.
-- **`ui/`** and `App.tsx` are components. `App.tsx` mounts only the active tab.
+- **`adapter/archipelago.ts` is the only file allowed to import `archipelago.js`.** It converts the library's objects into the plain records in `state/types.ts` (`Message`, `Span`, `HintRow`, `HistoryRow`, `RosterEntry`). Never put library class instances into state or components.
+- **`state/`** holds module-level Solid signals (`messages.ts`, `hints.ts`, `history.ts`, `connection.ts`) plus helpers: `style.ts` (flag/status to CSS class), `filtering.ts` (shared filter/sort helpers, one `Intl.Collator`), `timing.ts`. Filter and sort state for the Hints and History tabs also lives here so it survives tab switches.
+- **`ui/`** and `App.tsx` are components. `App.tsx` mounts only the active tab. `FilterControls.tsx` holds the controls shared by the Hints and History tabs (player dropdowns, item-type dropdown, sort button).
 
 ### Message pipeline
 
@@ -69,6 +69,15 @@ Virtualized with `@tanstack/solid-virtual`, rows absolutely positioned, items ke
 - The library's own hint events (`hintReceived`, `hintFound`) ignore status changes, so they are deliberately unused.
 - Name resolution: an item belongs to the **receiver's** game, a location to the **finder's** game. Build the slot lookup once per rebuild (`c.players.teams` reconstructs every `Player` on each access).
 
+### History (found items)
+
+- Source is raw packets only (the library's `Item`/`Player` wrappers throw for slot 0 and unknown slots). **Live:** every `PrintJSON` of type `ItemSend`; the server broadcasts these to the whole team, so finds that do not involve the user are included. **Backfill:** only the first `ReceivedItems` (`index === 0`, the full sync), skipping `location <= 0` (starting inventory and server items). Later `ReceivedItems` are ignored because `ItemSend` already reports those, with a time (the server sends `ItemSend` *before* the receiver's `ReceivedItems`).
+- **Known limit:** the server never replays other players' finds, so they are only recorded from the moment the user connects; the user's own received items are complete. The protocol carries **no timestamps** for items (`NetworkItem` has none and the server does not store any), so history rows have no time. The table shows **Order** instead: `HistoryRow.seq`, 1 = oldest in the list (backfilled items first, in the order they were received, which is their real order, then live finds). `clearHistory()` restarts the numbering. The History tab explains this in a fixed note line.
+- Rows are keyed `${finderSlot}-${locationId}`; the first copy wins. Hints and history share `describeFind()` in the adapter for name resolution (item in the receiver's game, location in the finder's).
+- Keep or clear on reconnect is decided in the `roomInfo` handler (seed name + slot), **not after `login()` resolves**: the index-0 `ReceivedItems` normally arrives in the same websocket message as `Connected`, so a later clear would wipe the backfill. Same room and slot keeps the history; a different one clears it.
+- `state/history.ts` caps the buffer (20 000 rows, trimmed in chunks) and publishes on a 200 ms timer, because `!release` / `!collect` announce thousands of items at once.
+- `ui/HistoryView.tsx` is virtualized with **fixed-height single-line rows** (ellipsis plus a `title` tooltip), so it never measures rows. The header is `position: sticky` inside the scroll element; this over-includes at most one row and is absorbed by overscan. While the user is scrolled away from the top, new rows are held back (rows with a higher `seq` are hidden) and an "N new" button releases them, so the row being read does not move.
+
 ### Styling gotchas
 
 - WebKitGTK ignores `background-color` on native `<select>`, giving light text on a light box in dark mode. `App.css` therefore draws selects itself (`appearance: none` plus a gradient arrow) and sets `color-scheme: light dark`. Keep this when restyling form controls.
@@ -80,4 +89,4 @@ Use the upstream Archipelago repo (`docs/network protocol.md`, `CommonClient.py`
 
 ## Verification
 
-There are no automated tests in the repo. The adapter was checked with a throwaway mock Archipelago server (not committed). UI behavior, resize smoothness and the Windows webview can only be confirmed by running the app.
+There are no automated tests in the repo. The adapter (messages, hints, history, reconnect, error paths) was checked with a throwaway mock Archipelago server that is not committed; remember that the mock must echo a `Get` request's `uuid` back in `Retrieved`, as the real server does. UI behavior, virtualization, resize smoothness and the Windows webview can only be confirmed by running the app.

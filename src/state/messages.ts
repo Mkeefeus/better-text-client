@@ -1,4 +1,5 @@
 import { batch, createSignal } from 'solid-js';
+import { clockLabel } from './timing';
 import type { Message, MessageCategory, Span } from './types';
 
 // The scrollback is a plain, mutable array. Signals only announce "it changed".
@@ -12,13 +13,6 @@ const MAX_MESSAGES = 5000;
 const TRIM_SLACK = 500;
 /** Fallback flush delay for when the window is hidden and rAF is paused. */
 const FLUSH_FALLBACK_MS = 250;
-
-const timeFormat = new Intl.DateTimeFormat([], {
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
 
 const buffer: Message[] = [];
 let queue: Message[] = [];
@@ -57,7 +51,7 @@ function scheduleFlush() {
 }
 
 export function pushMessage(category: MessageCategory, spans: Span[]) {
-  queue.push({ id: nextId++, timeLabel: timeFormat.format(new Date()), category, spans });
+  queue.push({ id: nextId++, timeLabel: clockLabel(), category, spans });
   scheduleFlush();
 }
 

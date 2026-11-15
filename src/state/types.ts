@@ -42,6 +42,30 @@ export interface RosterEntry {
   isMe: boolean;
 }
 
+/** One item that was found (a location was checked). */
+export interface HistoryRow {
+  /** `${finderSlot}-${locationId}`: a location is checked at most once, so this is unique. */
+  id: string;
+  /**
+   * Position in the history: 1 is the first item recorded. Shown as "Order". Items you received before
+   * connecting come first, in the order you received them (their real order), then live finds as they happen.
+   */
+  seq: number;
+  itemName: string;
+  itemFlags: number;
+  locationName: string;
+  finderSlot: number;
+  finderName: string;
+  finderGame: string;
+  receiverSlot: number;
+  receiverName: string;
+  receiverGame: string;
+  forMe: boolean;
+  fromMe: boolean;
+  /** Lower-cased text used by the search box. */
+  search: string;
+}
+
 export interface HintRow {
   /** `${finderSlot}-${locationId}`, unique per hint. */
   id: string;

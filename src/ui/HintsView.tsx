@@ -1,6 +1,6 @@
 import { createMemo, For, onMount, Show } from 'solid-js';
-import type { JSX } from 'solid-js';
-import { hintPoints, roster, status } from '../state/connection';
+import { hintPoints, status } from '../state/connection';
+import { compareText, matchesClass, searchTerms } from '../state/filtering';
 import {
   classFilter,
   finderFilter,
@@ -24,9 +24,10 @@ import {
   sortKey,
   statusFilter,
 } from '../state/hints';
-import type { ClassFilter, FoundFilter, SortKey, StatusFilter } from '../state/hints';
+import type { FoundFilter, SortKey, StatusFilter } from '../state/hints';
 import { itemClass, statusClass, statusLabel, statusRank } from '../state/style';
 import type { HintRow } from '../state/types';
+import { ItemTypeSelect, PlayerSelect, SortButton } from './FilterControls';
 
 // --- Filtering and sorting (pure functions) ------------------------------------
 
@@ -43,25 +44,6 @@ function matchesStatus(row: HintRow, filter: StatusFilter): boolean {
     default:
       return true;
   }
-}
-
-function matchesClass(row: HintRow, filter: ClassFilter): boolean {
-  switch (filter) {
-    case 'progression':
-      return (row.itemFlags & 0b001) !== 0;
-    case 'useful':
-      return (row.itemFlags & 0b010) !== 0;
-    case 'trap':
-      return (row.itemFlags & 0b100) !== 0;
-    case 'filler':
-      return row.itemFlags === 0;
-    default:
-      return true;
-  }
-}
-
-function compareText(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
 }
 
 /** Unfound first, then by status (priority first), then by item name. */
@@ -100,13 +82,8 @@ export default function HintsView() {
 
   onMount(() => searchElement.focus());
 
-  /** Every slot in the room for the "For" and "Found in" filters: you first, then alphabetically. */
-  const players = createMemo(() =>
-    [...roster()].sort((a, b) => Number(b.isMe) - Number(a.isMe) || compareText(a.name, b.name)),
-  );
-
   const visible = createMemo(() => {
-    const terms = searchText().toLowerCase().split(/\s+/).filter(Boolean);
+    const terms = searchTerms(searchText());
     const found = foundFilter();
     const receiver = receiverFilter();
     const finder = finderFilter();
@@ -120,7 +97,7 @@ export default function HintsView() {
       if (receiver && String(row.receiverSlot) !== receiver) return false;
       if (finder && String(row.finderSlot) !== finder) return false;
       if (mine && !row.forMe && !row.fromMe) return false;
-      if (!matchesStatus(row, statusF) || !matchesClass(row, classF)) return false;
+      if (!matchesStatus(row, statusF) || !matchesClass(row.itemFlags, classF)) return false;
       // Every search word must appear somewhere in the row.
       return terms.every((term) => row.search.includes(term));
     });
@@ -143,14 +120,12 @@ export default function HintsView() {
     }
   }
 
-  function SortHeader(props: { key: SortKey; children: JSX.Element }) {
-    const arrow = () => (sortKey() === props.key ? (sortDir() === 'asc' ? ' ▲' : ' ▼') : '');
+  function SortHeader(props: { key: SortKey; children: string }) {
     return (
       <th>
-        <button type="button" class="th-button" onClick={() => toggleSort(props.key)}>
+        <SortButton active={sortKey() === props.key} dir={sortDir()} onClick={() => toggleSort(props.key)}>
           {props.children}
-          {arrow()}
-        </button>
+        </SortButton>
       </th>
     );
   }
@@ -182,39 +157,19 @@ export default function HintsView() {
           </select>
         </label>
 
-        <label title="Only hints for items this player needs (the “For” column)">
-          For
-          <select value={receiverFilter()} onChange={(event) => setReceiverFilter(event.currentTarget.value)}>
-            <option value="" selected={receiverFilter() === ''}>
-              Anyone
-            </option>
-            <For each={players()}>
-              {(player) => (
-                <option value={String(player.slot)} selected={receiverFilter() === String(player.slot)}>
-                  {player.name}
-                  {player.isMe ? ' (you)' : ''}
-                </option>
-              )}
-            </For>
-          </select>
-        </label>
+        <PlayerSelect
+          label="For"
+          title="Only hints for items this player needs (the “For” column)"
+          value={receiverFilter()}
+          onChange={setReceiverFilter}
+        />
 
-        <label title="Only hints for items located in this player's world (the “Found in” column)">
-          Found in
-          <select value={finderFilter()} onChange={(event) => setFinderFilter(event.currentTarget.value)}>
-            <option value="" selected={finderFilter() === ''}>
-              Anyone
-            </option>
-            <For each={players()}>
-              {(player) => (
-                <option value={String(player.slot)} selected={finderFilter() === String(player.slot)}>
-                  {player.name}
-                  {player.isMe ? ' (you)' : ''}
-                </option>
-              )}
-            </For>
-          </select>
-        </label>
+        <PlayerSelect
+          label="Found in"
+          title="Only hints for items located in this player's world (the “Found in” column)"
+          value={finderFilter()}
+          onChange={setFinderFilter}
+        />
 
         <label class="check" title="Only hints where you are the player who needs the item or the player who holds it">
           <input type="checkbox" checked={mineOnly()} onChange={(event) => setMineOnly(event.currentTarget.checked)} />
@@ -235,16 +190,7 @@ export default function HintsView() {
           </select>
         </label>
 
-        <label>
-          Item type
-          <select value={classFilter()} onChange={(event) => setClassFilter(event.currentTarget.value as ClassFilter)}>
-            <option value="any">Any</option>
-            <option value="progression">Progression</option>
-            <option value="useful">Useful</option>
-            <option value="trap">Trap</option>
-            <option value="filler">Filler</option>
-          </select>
-        </label>
+        <ItemTypeSelect value={classFilter()} onChange={setClassFilter} />
 
         {/* Always rendered (just disabled) so the toolbar does not reflow when filters change. */}
         <button type="button" onClick={resetHintFilters} disabled={!hintFiltersActive()}>

@@ -2,12 +2,13 @@ import { createEffect, createMemo, createSignal, Match, Switch } from 'solid-js'
 import ConnectBar from './ui/ConnectBar';
 import CommandInput from './ui/CommandInput';
 import HintsView from './ui/HintsView';
+import HistoryView from './ui/HistoryView';
 import LogView from './ui/LogView';
 import { hints } from './state/hints';
 import { clearMessages, lastMessageId, messages } from './state/messages';
 import './App.css';
 
-type Tab = 'log' | 'hints';
+type Tab = 'log' | 'hints' | 'history';
 
 function App() {
   const [tab, setTab] = createSignal<Tab>('log');
@@ -48,6 +49,15 @@ function App() {
           Hints
           {unfoundHints() > 0 && <span class="badge">{unfoundHints()}</span>}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab() === 'history'}
+          classList={{ active: tab() === 'history' }}
+          onClick={() => setTab('history')}
+        >
+          History
+        </button>
 
         {/* Always in the layout (hidden, not removed, on the Hints tab) so the tab bar never shifts. */}
         <button
@@ -70,6 +80,9 @@ function App() {
           </Match>
           <Match when={tab() === 'hints'}>
             <HintsView />
+          </Match>
+          <Match when={tab() === 'history'}>
+            <HistoryView />
           </Match>
         </Switch>
       </main>

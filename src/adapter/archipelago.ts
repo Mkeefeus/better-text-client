@@ -5,6 +5,8 @@ import { Client, LoginError } from 'archipelago.js';
 import type { API, MessageNode } from 'archipelago.js';
 import { setHintPoints, setIdentity, setRoster, setStatus } from '../state/connection';
 import { clearHints, replaceHints } from '../state/hints';
+import { addHistory, clearHistory } from '../state/history';
+import type { NewHistoryRow } from '../state/history';
 import { pushClientMessage, pushMessage } from '../state/messages';
 import { itemClass } from '../state/style';
 import type { HintRow, MessageCategory, Span } from '../state/types';
@@ -20,6 +22,9 @@ class Dropped extends Error {}
 
 /** The current connection. Cleared on disconnect so late events from an old client are ignored. */
 let client: Client | undefined;
+
+/** Which room and slot the history belongs to, so reconnecting to the same one keeps it. */
+let lastRoomKey: string | undefined;
 
 // --- Public API ---------------------------------------------------------------
 
@@ -95,6 +100,74 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
     safe((packet) => {
       selfTeam = packet.team;
       selfSlot = packet.slot;
+    }),
+  );
+
+  // --- History of found items ---
+  // Only raw packets are used here: the library's Item/Player wrappers throw for slot 0 and
+  // for slots missing from the player list.
+  let people: Map<number, PlayerInfo> | undefined;
+  const getPeople = () => (people ??= buildPeople(c, selfTeam));
+
+  c.socket.on(
+    'roomUpdate',
+    safe((packet) => {
+      if (packet.players) people = undefined; // aliases changed
+    }),
+  );
+
+  // Keep the history when reconnecting to the same room and slot; drop it for a different one.
+  // This must be decided here, not after login() resolves: the first ReceivedItems usually
+  // arrives in the same message as Connected and would be wiped by a later clear.
+  c.socket.on(
+    'roomInfo',
+    safe((packet) => {
+      if (!isCurrent()) return;
+      const key = `${packet.seed_name}|${slot}`;
+      if (key !== lastRoomKey) clearHistory();
+      lastRoomKey = key;
+    }),
+  );
+
+  // Live: every ItemSend is broadcast to the whole team, including finds that do not involve us.
+  c.socket.on(
+    'printJSON',
+    safe((packet) => {
+      if (!isCurrent() || packet.type !== 'ItemSend') return;
+      const { item, receiving } = packet;
+      addHistory([
+        toHistoryRow(c, getPeople(), selfSlot, {
+          finder: item.player,
+          receiver: receiving,
+          item: item.item,
+          location: item.location,
+          flags: item.flags,
+        }),
+      ]);
+    }),
+  );
+
+  // Backfill: the first ReceivedItems (index 0) is everything we have been sent so far. Later
+  // ones are new finds that ItemSend already reported, with a time, so they are ignored.
+  c.socket.on(
+    'receivedItems',
+    safe((packet) => {
+      if (!isCurrent() || packet.index !== 0) return;
+      const names = getPeople();
+      addHistory(
+        packet.items
+          // Locations <= 0 are the starting inventory and server-granted items, not finds.
+          .filter((item) => item.location > 0)
+          .map((item) =>
+            toHistoryRow(c, names, selfSlot, {
+              finder: item.player,
+              receiver: selfSlot,
+              item: item.item,
+              location: item.location,
+              flags: item.flags,
+            }),
+          ),
+      );
     }),
   );
 
@@ -300,6 +373,7 @@ function hintId(hint: API.NetworkHint): string {
   return `${hint.finding_player}-${hint.location}`;
 }
 
+
 interface PlayerInfo {
   name: string;
   game: string;
@@ -330,40 +404,74 @@ function buildPeople(c: Client, team: number): Map<number, PlayerInfo> {
   return people;
 }
 
+/** An item in a location: shared by hints and by the history of found items. */
+interface Find {
+  /** Slot whose world holds the location. */
+  finder: number;
+  /** Slot the item is for. */
+  receiver: number;
+  item: number;
+  location: number;
+  flags: number;
+}
+
+/** Resolve a find's player and item names. Used by both the hint table and the history. */
+function describeFind(c: Client, people: Map<number, PlayerInfo>, selfSlot: number, find: Find) {
+  const who = (slot: number): PlayerInfo =>
+    people.get(slot) ?? { name: slot === 0 ? 'Archipelago' : `Slot ${slot}`, game: 'Archipelago' };
+  const finder = who(find.finder);
+  const receiver = who(find.receiver);
+  return {
+    id: `${find.finder}-${find.location}`,
+    // An item id belongs to the receiving player's game, a location id to the finder's.
+    itemName: c.package.lookupItemName(receiver.game, find.item, true),
+    itemFlags: find.flags,
+    locationName: c.package.lookupLocationName(finder.game, find.location, true),
+    finderSlot: find.finder,
+    finderName: finder.name,
+    finderGame: finder.game,
+    receiverSlot: find.receiver,
+    receiverName: receiver.name,
+    receiverGame: receiver.game,
+    forMe: find.receiver === selfSlot,
+    fromMe: find.finder === selfSlot,
+  };
+}
+
+type Described = ReturnType<typeof describeFind>;
+
+/** Lower-cased text the search boxes look in. */
+function searchText(base: Described, ...extra: string[]): string {
+  return [base.itemName, base.locationName, base.finderName, base.finderGame, base.receiverName, base.receiverGame, ...extra]
+    .join('\u0000')
+    .toLowerCase();
+}
+
 function toHintRow(
   c: Client,
   people: Map<number, PlayerInfo>,
   selfSlot: number,
   hint: API.NetworkHint,
 ): HintRow {
-  const who = (slot: number): PlayerInfo =>
-    people.get(slot) ?? { name: slot === 0 ? 'Archipelago' : `Slot ${slot}`, game: 'Archipelago' };
-  const finder = who(hint.finding_player);
-  const receiver = who(hint.receiving_player);
-  // An item id belongs to the receiving player's game, a location id to the finder's.
-  const itemName = c.package.lookupItemName(receiver.game, hint.item, true);
-  const locationName = c.package.lookupLocationName(finder.game, hint.location, true);
-  const status = Number(hint.status ?? 0);
+  const base = describeFind(c, people, selfSlot, {
+    finder: hint.finding_player,
+    receiver: hint.receiving_player,
+    item: hint.item,
+    location: hint.location,
+    flags: hint.item_flags ?? 0,
+  });
   const entrance = hint.entrance ?? '';
 
   return {
-    id: hintId(hint),
-    itemName,
-    itemFlags: hint.item_flags ?? 0,
-    locationName,
-    finderSlot: hint.finding_player,
-    finderName: finder.name,
-    finderGame: finder.game,
-    receiverSlot: hint.receiving_player,
-    receiverName: receiver.name,
-    receiverGame: receiver.game,
+    ...base,
     entrance,
     found: hint.found,
-    status,
-    forMe: hint.receiving_player === selfSlot,
-    fromMe: hint.finding_player === selfSlot,
-    search: [itemName, locationName, finder.name, finder.game, receiver.name, receiver.game, entrance]
-      .join('\u0000')
-      .toLowerCase(),
+    status: Number(hint.status ?? 0),
+    search: searchText(base, entrance),
   };
+}
+
+function toHistoryRow(c: Client, people: Map<number, PlayerInfo>, selfSlot: number, find: Find): NewHistoryRow {
+  const base = describeFind(c, people, selfSlot, find);
+  return { ...base, search: searchText(base) };
 }

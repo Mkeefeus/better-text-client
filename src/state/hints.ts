@@ -1,4 +1,5 @@
 import { createSignal } from 'solid-js';
+import type { ClassFilter, SortDir } from './filtering';
 import type { HintRow } from './types';
 
 // --- The hint list ------------------------------------------------------------
@@ -41,9 +42,7 @@ export function clearHints() {
 
 export type FoundFilter = 'all' | 'unfound' | 'found';
 export type StatusFilter = 'any' | 'priority' | 'unspecified' | 'no-priority' | 'avoid';
-export type ClassFilter = 'any' | 'progression' | 'useful' | 'trap' | 'filler';
 export type SortKey = 'default' | 'item' | 'location' | 'finder' | 'receiver' | 'entrance' | 'status' | 'found';
-export type SortDir = 'asc' | 'desc';
 
 export const [searchText, setSearchText] = createSignal('');
 export const [foundFilter, setFoundFilter] = createSignal<FoundFilter>('unfound');
