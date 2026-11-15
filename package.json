@@ -1,28 +1,28 @@
 {
-  "name": "better-text-client",
-  "version": "0.1.0",
-  "description": "",
-  "type": "module",
-  "scripts": {
-    "start": "vite",
-    "dev": "vite",
-    "build": "vite build",
-    "serve": "vite preview",
-    "tauri": "tauri"
-  },
-  "license": "MIT",
-  "dependencies": {
-    "@kobalte/core": "^0.13.14",
-    "@tanstack/solid-virtual": "^3.13.53",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "archipelago.js": "^2.1.0",
-    "solid-js": "^1.9.3"
-  },
-  "devDependencies": {
-    "typescript": "~6.0.3",
-    "vite": "^8.0.16",
-    "vite-plugin-solid": "^2.11.12",
-    "@tauri-apps/cli": "^2"
-  }
+    "name": "better-text-client",
+    "version": "0.1.0",
+    "description": "",
+    "type": "module",
+    "scripts": {
+        "start": "vite",
+        "dev": "vite",
+        "build": "vite build",
+        "serve": "vite preview",
+        "tauri": "tauri"
+    },
+    "license": "MIT",
+    "dependencies": {
+        "@kobalte/core": "^0.13.14",
+        "@tanstack/solid-virtual": "^3.13.53",
+        "@tauri-apps/api": "^2",
+        "@tauri-apps/plugin-opener": "^2",
+        "archipelago.js": "^2.1.0",
+        "solid-js": "^1.9.3"
+    },
+    "devDependencies": {
+        "typescript": "~6.0.3",
+        "vite": "^8.0.16",
+        "vite-plugin-solid": "^2.11.12",
+        "@tauri-apps/cli": "^2"
+    }
 }

@@ -22,7 +22,7 @@ bunx tsc --noEmit -p tsconfig.json   # type check
 - There is no linter and no test runner configured.
 - Linux builds need the WebKitGTK dev packages. Fedora: `webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel libxdo-devel`.
 - `bun run tauri dev` loads the page over `http://`, so it does not exercise the production `tauri://localhost` origin. Test network behavior in a built binary.
-- Releases: pushing a `v*` tag runs `.github/workflows/release.yml` (Windows + Ubuntu 22.04 builds, draft release, then published). It fails unless the tag matches the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`; bump all three.
+- Releases: pushing a `v*` tag runs `.github/workflows/release.yml` (Windows + Ubuntu 22.04 builds, draft release, then published). The app version lives **only in `package.json`**: `src-tauri/tauri.conf.json` has `"version": "../package.json"` so Tauri reads it from there, and the `version` in `src-tauri/Cargo.toml` is unused and may be stale. The workflow fails unless the tag matches the `package.json` version (and `tauri.conf.json` still points at it), so bump `package.json` before tagging.
 
 ## Architecture
 

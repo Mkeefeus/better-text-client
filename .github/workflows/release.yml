@@ -29,20 +29,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The app version lives only in package.json: tauri.conf.json points at it, and the
+      # version in src-tauri/Cargo.toml is not used for anything.
       - name: Check that the tag matches the app version
         run: |
           tag="${GITHUB_REF_NAME#v}"
           package_json=$(jq -r .version package.json)
           tauri_conf=$(jq -r .version src-tauri/tauri.conf.json)
-          cargo_toml=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')
 
           echo "tag:                  $tag"
           echo "package.json:         $package_json"
-          echo "src-tauri/tauri.conf: $tauri_conf"
-          echo "src-tauri/Cargo.toml: $cargo_toml"
+          echo "tauri.conf.json:      $tauri_conf"
 
-          if [ "$tag" != "$package_json" ] || [ "$tag" != "$tauri_conf" ] || [ "$tag" != "$cargo_toml" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the versions above. Bump them all to $tag, then re-tag."
+          if [ "$tauri_conf" != "../package.json" ]; then
+            echo "::error::src-tauri/tauri.conf.json must have \"version\": \"../package.json\" so the installers use the package.json version."
+            exit 1
+          fi
+
+          if [ "$tag" != "$package_json" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the package.json version ($package_json). Bump it to $tag, then re-tag."
             exit 1
           fi
 
