@@ -558,6 +558,228 @@ button.primary {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* ---------- Stats ---------- */
+
+.stats {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  background-color: var(--surface);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.stat-card {
+  min-width: 0;
+  padding: 0.75rem 1rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg);
+}
+
+.stat-card.wide {
+  grid-column: 1 / -1;
+}
+
+.stat-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-big {
+  font-size: 1.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-of {
+  font-size: 1.1rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.stat-pct {
+  margin-left: 0.4rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.bar {
+  height: 10px;
+  margin: 0.5rem 0 0.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.bar-fill {
+  height: 100%;
+  background-color: var(--accent);
+}
+
+.stat-card dl {
+  margin: 0.5rem 0 0;
+}
+
+.bar + dl {
+  margin-top: 0;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.stat-row:last-child {
+  border-bottom: none;
+}
+
+.stat-row dt {
+  color: var(--muted);
+}
+
+.stat-row dt [class] {
+  /* Colored item labels (progression, useful, ...) read as the item, not as muted text. */
+  font-weight: 500;
+}
+
+.stat-row dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.stat-muted {
+  color: var(--muted);
+}
+
+.stat-summary {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.stats-table-wrap {
+  overflow-x: auto;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.stats-table th {
+  padding: 0.3em 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-table td {
+  padding: 0.3em 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-table .player {
+  white-space: nowrap;
+}
+
+/* Completion by game: the link field, two fixed-height note lines, and the table. */
+.tracker-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.tracker-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-note {
+  margin: 0.35rem 0;
+  /* Reserves room for the help text or a warning, so showing one never pushes the table down. */
+  min-height: 3.6em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.stat-note.stat-status {
+  min-height: 1.4em;
+  margin-top: 0;
+}
+
+.stat-note.warn {
+  color: var(--warn);
+}
+
+.completion-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 9rem;
+}
+
+.bar.small {
+  flex: 1;
+  height: 6px;
+  margin: 0;
+}
+
+.completion-pct {
+  min-width: 3.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.total-row td {
+  font-weight: 600;
+  border-top: 2px solid var(--border);
+}
+
+.cs-goal {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.cs-playing {
+  color: var(--text);
+}
+
+.cs-ready {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.cs-connected,
+.cs-offline {
+  color: var(--muted);
+}
+
 /* ---------- Command input ---------- */
 
 .command-input {

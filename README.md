@@ -10,6 +10,7 @@ The official text client can lag, especially while its window is being resized. 
 - **Commands:** type chat, or a server command such as `!hint Item Name`, `!help` or `!release`. Up and down arrows recall what you typed earlier.
 - **Hints tab:** every hint in the room, not just yours. Search by item, location, player or game (every word must match), filter by who it is for, whose world it is in, status and item type, and sort by any column.
 - **History tab:** the items that have been found, with the same kind of search and filters. See the note under [Limitations](#limitations).
+- **Stats tab:** how many of your checks are done and how many remain (with a progress bar and how soon your next hint is), the items you have received and the items you have sent to other players, each by type, a summary of the room's hints, the room's settings (versions, the `!release`, `!collect` and `!remaining` permissions, hint cost), and every player's status and game, including who has reached their goal. If you paste the room's tracker link (see below), it also shows how complete the whole lobby is, game by game.
 - **Hint points:** your current hint points and the cost of a hint are shown at the top, next to your slot.
 - **Light and dark themes:** it follows your system setting.
 
@@ -30,9 +31,19 @@ The installers are not code-signed, so Windows SmartScreen may warn you before r
 
 The server address and slot name are remembered between runs. The password is never saved.
 
+### Lobby completion by game
+
+The Stats tab can show how many checks are done across the whole room, game by game, with a total for the lobby. The game connection can't provide this, so it reads the Archipelago website's tracker instead:
+
+1. Open the room's page on the website and copy the address of its **Multiworld Tracker** link (it looks like `https://archipelago.gg/tracker/…`).
+2. Paste it into the **Completion by game** card on the Stats tab and press Enter.
+
+The link is remembered for that room. The data is up to a minute old, because that is how often the website refreshes it, and it is only loaded while the Stats tab is open. This needs a room hosted on the website that has a tracker; servers you host yourself can't use it.
+
 ## Limitations
 
 - **History starts when you connect.** The Archipelago server never replays other players' finds, so those are recorded only from the moment you connect. Items you have received are listed in full. The protocol has no timestamps for items, so the History tab shows an order number instead of a time.
+- **Check progress is for your own slot only, unless you add the tracker link.** The Archipelago server only reports a slot's checked and remaining locations to the clients on that slot, so other players' check counts come only from the website's tracker (see [Lobby completion by game](#lobby-completion-by-game)).
 - **No `/` commands.** The official client's client-side commands (such as `/received`) are not implemented. If you type one, it stays on your machine and is not sent to the room. `!` commands work normally.
 - **No automatic reconnect.** If the connection drops, click **Connect** again.
 - **Hints and history belong to a single team.** Rooms with several teams are untested.

@@ -7,10 +7,13 @@ export const [status, setStatus] = createSignal<ConnectionStatus>('idle');
 export const [roster, setRoster] = createSignal<readonly RosterEntry[]>([]);
 
 /** Who we are connected as, once logged in. */
-export const [identity, setIdentity] = createSignal<{ name: string; game: string } | undefined>();
+export const [identity, setIdentity] = createSignal<{ name: string; game: string; team: number } | undefined>();
 
-/** Hint points currently held and the cost of one hint, once logged in. */
-export const [hintPoints, setHintPoints] = createSignal<{ points: number; cost: number } | undefined>();
+/**
+ * Hint points currently held, the cost of one hint, and the points earned per location checked,
+ * once logged in.
+ */
+export const [hintPoints, setHintPoints] = createSignal<{ points: number; cost: number; perCheck: number } | undefined>();
 
 // --- Saved connection details -------------------------------------------------
 // Only the URL and slot name are remembered. The password is deliberately never stored.

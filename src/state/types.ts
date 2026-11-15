@@ -40,6 +40,8 @@ export interface RosterEntry {
   game: string;
   /** This is the slot we are connected as. */
   isMe: boolean;
+  /** An item-links group rather than a real player. */
+  isGroup: boolean;
 }
 
 /** One item that was found (a location was checked). */

@@ -4,10 +4,11 @@ import CommandInput from './ui/CommandInput';
 import HintsView from './ui/HintsView';
 import HistoryView from './ui/HistoryView';
 import LogView from './ui/LogView';
+import StatsView from './ui/StatsView';
 import { clearMessages, messages } from './state/messages';
 import './App.css';
 
-type Tab = 'log' | 'hints' | 'history';
+type Tab = 'log' | 'hints' | 'history' | 'stats';
 
 function App() {
   const [tab, setTab] = createSignal<Tab>('log');
@@ -44,6 +45,15 @@ function App() {
         >
           History
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab() === 'stats'}
+          classList={{ active: tab() === 'stats' }}
+          onClick={() => setTab('stats')}
+        >
+          Stats
+        </button>
 
         {/* Always in the layout (hidden, not removed, on the Hints tab) so the tab bar never shifts. */}
         <button
@@ -69,6 +79,9 @@ function App() {
           </Match>
           <Match when={tab() === 'history'}>
             <HistoryView />
+          </Match>
+          <Match when={tab() === 'stats'}>
+            <StatsView />
           </Match>
         </Switch>
       </main>

@@ -11,6 +11,68 @@ export function itemClass(flags: number): string {
   return 'item-normal';
 }
 
+export type ItemKind = 'progression' | 'useful' | 'trap' | 'filler';
+
+/** Item classification flags -> kind, with the same precedence as `itemClass`. */
+export function itemKind(flags: number): ItemKind {
+  if (flags & 0b001) return 'progression';
+  if (flags & 0b010) return 'useful';
+  if (flags & 0b100) return 'trap';
+  return 'filler';
+}
+
+/** Player connection state as the server reports it (`_read_client_status_*`). */
+export function clientStatusLabel(status: number | undefined): string {
+  switch (status) {
+    case 5:
+      return 'Connected';
+    case 10:
+      return 'Ready';
+    case 20:
+      return 'Playing';
+    case 30:
+      return 'Goal reached';
+    case 0:
+      // The server sets this when a slot's last client leaves (and before anyone ever joined).
+      return 'Offline';
+    default:
+      return '—';
+  }
+}
+
+export function clientStatusClass(status: number | undefined): string {
+  switch (status) {
+    case 5:
+      return 'cs-connected';
+    case 10:
+      return 'cs-ready';
+    case 20:
+      return 'cs-playing';
+    case 30:
+      return 'cs-goal';
+    default:
+      return 'cs-offline';
+  }
+}
+
+/** How a room permission (release, collect, remaining) is set. */
+export function permissionLabel(value: number | undefined): string {
+  switch (value) {
+    case 0:
+      return 'Disabled';
+    case 1:
+      return 'Any time';
+    case 2:
+      return 'After goal';
+    case 6:
+      return 'Automatic after goal';
+    case 7:
+      return 'Automatic after goal, or any time';
+    default:
+      return '—';
+  }
+}
+
 export const STATUS_UNSPECIFIED = 0;
 export const STATUS_NO_PRIORITY = 10;
 export const STATUS_AVOID = 20;

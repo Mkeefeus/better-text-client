@@ -31,11 +31,11 @@ The Rust side is a thin shell. `src-tauri/src/lib.rs` only holds the leftover te
 Three layers under `src/`, with a strict direction:
 
 ```
-adapter/archipelago.ts  ->  state/*  ->  ui/*
+adapter/*  ->  state/*  ->  ui/*
 ```
 
-- **`adapter/archipelago.ts` is the only file allowed to import `archipelago.js`.** It converts the library's objects into the plain records in `state/types.ts` (`Message`, `Span`, `HintRow`, `HistoryRow`, `RosterEntry`). Never put library class instances into state or components.
-- **`state/`** holds module-level Solid signals (`messages.ts`, `hints.ts`, `history.ts`, `connection.ts`) plus helpers: `style.ts` (flag/status to CSS class), `filtering.ts` (shared filter/sort helpers, one `Intl.Collator`), `timing.ts`. Filter and sort state for the Hints and History tabs also lives here so it survives tab switches.
+- **`adapter/` holds the two modules that talk to the outside world.** `archipelago.ts` is the Archipelago connection and **the only file allowed to import `archipelago.js`**; it converts the library's objects into the plain records in `state/types.ts` (`Message`, `Span`, `HintRow`, `HistoryRow`, `RosterEntry`). Never put library class instances into state or components. `tracker.ts` is plain `fetch` to the Archipelago website's tracker API (see Stats) and does not touch the library.
+- **`state/`** holds module-level Solid signals (`messages.ts`, `hints.ts`, `history.ts`, `stats.ts`, `connection.ts`) plus helpers: `style.ts` (flag/status to CSS class), `filtering.ts` (shared filter/sort helpers, one `Intl.Collator`), `timing.ts`. Filter and sort state for the Hints and History tabs also lives here so it survives tab switches.
 - **`ui/`** and `App.tsx` are components. `App.tsx` mounts only the active tab. `FilterControls.tsx` holds the controls shared by the Hints and History tabs (player dropdowns, item-type dropdown, sort button).
 
 ### Message pipeline
@@ -79,6 +79,24 @@ Virtualized with `@tanstack/solid-virtual`, rows absolutely positioned, items ke
 - `ui/HistoryView.tsx` is virtualized with **fixed-height single-line rows** (ellipsis plus a `title` tooltip), so it never measures rows. The header is `position: sticky` inside the scroll element; this over-includes at most one row and is absorbed by overscan. While the user is scrolled away from the top, new rows are held back (rows with a higher `seq` are hidden) and an "N new" button releases them, so the row being read does not move.
 
 ### Styling gotchas
+### Stats
+
+- **Check progress is for the connected slot only.** `Connected` carries that slot's `checked_locations` / `missing_locations`, and the server sends later `RoomUpdate.checked_locations` only to clients on the same slot; there is no protocol way to get other slots' check lists. The card is titled "Your checks" for that reason. Whole-lobby progress comes from the WebHost tracker API instead (the "Completion by game" card, `adapter/tracker.ts`), described below.
+- Checks use a `Set` of location ids because `RoomUpdate` is partial and can repeat ids; totals are `checked + missing` at connect. `resetStats()` runs at connect start, never after `login()` resolves (same trap as the history backfill).
+- Items received are written **by position** across every `ReceivedItems` packet (`index === 0` starts over), so resent or duplicate packets are not double counted. Unlike History, this includes starting items and server-granted items (location <= 0).
+- **Items sent** (items from our world that went to other players) are complete, not just "since connecting", because the adapter asks the server what is in the locations we have **already checked** (`LocationScouts`, `create_as_hint: 0`, in chunks of 2000; the reply is `LocationInfo`, where `player` is the *receiver*). Those items were already announced to the whole team when checked, so this reveals nothing. **Never scout unchecked locations** (that would spoil the run): the adapter only requests ids from the checked set and ignores any `LocationInfo` entry for a location outside it, or one that arrives when no request is pending. Live `ItemSend`s with `item.player === selfSlot && receiving !== selfSlot` are added, keyed by location id so repeats and the backfill overlap safely. Counts are only published after the backfill finishes (`finishSentBackfill`), so a partial number is never shown as final, then throttled on a 200 ms timer.
+- Player status comes from `_read_client_status_{team}_{slot}` (`storage.notify`, like hints): 0 offline, 5 connected, 10 ready, 20 playing, 30 goal reached (permanent). Any client counts, including this text client, so 5 does not mean the game is running and the user's own row is never offline. Item-link groups are skipped (`isGroup`, from `slot_info`).
+- The "Finds seen" counter increments per `ItemSend` and is published on a 200 ms timer, because `!release` can announce thousands at once. `ui/StatsView.tsx` always renders every row (with "—" for missing data) so nothing shifts as data arrives; keep it that way.
+
+#### Completion by game (website tracker)
+
+- Needs the room's **tracker link** pasted by the user (the "Multiworld Tracker" link on the website's room page). The tracker has its own id, separate from the room id, and only exists for rooms hosted on the website that have one; self-hosted servers cannot use it. A pasted `/room/<id>` link gets its own message. The id is passed on exactly as written (short or full UUIDs both work).
+- Two endpoints, both with CORS open (`origins: *`) in the upstream code: `/api/static_tracker/<id>` (slot totals, games, item-link groups; it also contains the room's **entire data package**, so it is fetched once per link and only the small part we need is kept) and `/api/tracker/<id>` (every player's checked locations, plus items and hints we ignore). The website caches the latter for 60 s, so polling is 60 s at most and runs **only while the Stats tab is mounted** (`startTracker` / `stopTracker` in an effect with `onCleanup`).
+- Per-game rows come from the pure `completionByGame()`: filtered to the user's team (`identity().team`), item-link groups and players with 0 locations excluded, checks capped at the total.
+- Neither endpoint returns the seed name, so `rosterMatchesTracker()` compares who plays what against the roster and the card warns on a mismatch. Links are saved per seed in `localStorage` and never applied to a different seed.
+- Stale responses are dropped with the same "is this still the current run" guard the connection uses, and every part of the card (link field, two fixed-height note lines, table, total row) always renders so an error or help text never pushes the table down.
+- Not verified against a real tracker (only fixtures shaped like the upstream payloads and a mock HTTP server). A plain-`http` tracker on a LAN address may be blocked by the webview when it is served from `tauri://`; `https` sites and `http://localhost` should work.
+
 
 - WebKitGTK ignores `background-color` on native `<select>`, giving light text on a light box in dark mode. `App.css` therefore draws selects itself (`appearance: none` plus a gradient arrow) and sets `color-scheme: light dark`. Keep this when restyling form controls.
 - Only the server URL and slot name are persisted (`localStorage`); the password is intentionally never stored.
