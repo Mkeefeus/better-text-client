@@ -1,0 +1,110 @@
+name: Release
+
+# Builds installers for Windows and Linux and publishes a GitHub release
+# whenever a version tag is pushed, for example:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Tags containing a hyphen (v0.2.0-beta.1) are published as pre-releases.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  # The gh CLI used in the release jobs reads this.
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  # Fails fast if the tag does not match the app's version, then creates a *draft* release.
+  # Creating it once, up front, means the parallel build jobs below cannot race to create
+  # duplicate releases, and nothing is public until every build has succeeded.
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the app version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          package_json=$(jq -r .version package.json)
+          tauri_conf=$(jq -r .version src-tauri/tauri.conf.json)
+          cargo_toml=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')
+
+          echo "tag:                  $tag"
+          echo "package.json:         $package_json"
+          echo "src-tauri/tauri.conf: $tauri_conf"
+          echo "src-tauri/Cargo.toml: $cargo_toml"
+
+          if [ "$tag" != "$package_json" ] || [ "$tag" != "$tauri_conf" ] || [ "$tag" != "$cargo_toml" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the versions above. Bump them all to $tag, then re-tag."
+            exit 1
+          fi
+
+      - name: Create draft release
+        id: create
+        run: |
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="${GITHUB_REF_NAME}" \
+            -f name="better-text-client ${GITHUB_REF_NAME}" \
+            -F draft=true \
+            -F prerelease=${{ contains(github.ref_name, '-') }} \
+            -F generate_release_notes=true \
+            --jq .id)
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        # Ubuntu 22.04 on purpose: binaries built there run on a wider range of Linux distributions.
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and upload installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          # The project uses bun; this runs the tauri CLI from package.json.
+          tauriScript: bun run tauri
+
+  # Runs only if every build succeeded; turns the draft into a public release.
+  publish:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        run: |
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${{ needs.create-release.outputs.release_id }}" \
+            -F draft=false

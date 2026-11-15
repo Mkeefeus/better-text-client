@@ -1,0 +1,656 @@
+/* ---------- Theme tokens ---------- */
+
+:root {
+  --bg: #f4f4f6;
+  --surface: #ffffff;
+  --surface-2: #ececf0;
+  --border: #c9c9d1;
+  --text: #16161a;
+  --muted: #6a6a76;
+  --accent: #3a5bc7;
+  --accent-text: #ffffff;
+  --ok: #1f8a4c;
+  --warn: #a86a00;
+  --err: #c0332b;
+
+  /* Archipelago text colors (light-background variants of the official palette). */
+  --p-self: #b000b0;
+  --p-other: #8a6d00;
+  --item-normal: #00758a;
+  --item-prog: #6a4fc7;
+  --item-useful: #3a5bc7;
+  --item-trap: #c4412f;
+  --loc: #0b8a4c;
+  --entrance: #2a5bc0;
+
+  --c-black: #000000;
+  --c-red: #c40000;
+  --c-green: #0b8a4c;
+  --c-yellow: #8a6d00;
+  --c-blue: #2a5bc0;
+  --c-magenta: #b000b0;
+  --c-cyan: #00758a;
+  --c-white: #444444;
+  --c-orange: #b35400;
+
+  /* Lets native controls (scrollbars, select popups, checkboxes) follow the system theme too. */
+  color-scheme: light dark;
+
+  font-family: Inter, Avenir, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text);
+  background-color: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1f;
+    --surface: #232328;
+    --surface-2: #2d2d34;
+    --border: #44444d;
+    --text: #ececf0;
+    --muted: #9a9aa6;
+    --accent: #6d8be8;
+    --accent-text: #101018;
+    --ok: #4cd694;
+    --warn: #e0b24a;
+    --err: #ff7b72;
+
+    /* The official client's palette. */
+    --p-self: #ee00ee;
+    --p-other: #fafad2;
+    --item-normal: #00eeee;
+    --item-prog: #af99ef;
+    --item-useful: #6d8be8;
+    --item-trap: #fa8072;
+    --loc: #00ff7f;
+    --entrance: #6495ed;
+
+    --c-black: #6b6b75;
+    --c-red: #ee0000;
+    --c-green: #00ff7f;
+    --c-yellow: #fafad2;
+    --c-blue: #6495ed;
+    --c-magenta: #ee00ee;
+    --c-cyan: #00eeee;
+    --c-white: #ffffff;
+    --c-orange: #ff7700;
+  }
+}
+
+/* ---------- Base ---------- */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select {
+  padding: 0.35em 0.6em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface);
+}
+
+/*
+ * Native <select> ignores background-color in some webviews (WebKitGTK on Linux), which gave
+ * light text on a light box in dark mode. Draw the control ourselves, arrow included.
+ */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.9em;
+  color: var(--text);
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+select option {
+  color: var(--text);
+  background-color: var(--surface);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.6;
+}
+
+button {
+  padding: 0.35em 0.9em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface-2);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* ---------- Layout ---------- */
+
+.app {
+  height: 100%;
+  display: grid;
+  /* minmax(0, 1fr) lets the content row shrink, which the virtualized list needs. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Connect bar ---------- */
+
+.connect-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--surface);
+}
+
+.field-url {
+  flex: 1 1 11rem;
+  min-width: 8rem;
+}
+
+.field-slot {
+  flex: 1 1 9rem;
+  min-width: 7rem;
+}
+
+.field-password {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+}
+
+.status-chip {
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.85em;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-chip.status-connected {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.status-chip.status-connecting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.hint-points {
+  font-size: 0.85em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---------- Tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.35rem 0.75rem 0;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+  background-color: transparent;
+  margin-bottom: -1px;
+}
+
+.tabs button.active {
+  background-color: var(--bg);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+.tabs .tab-action {
+  align-self: center;
+  margin: 0 0 0.3rem auto;
+  padding: 0.15em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--surface-2);
+  font-size: 0.85em;
+}
+
+.tabs .tab-action.hidden {
+  visibility: hidden;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 1.5em;
+  margin-left: 0.5em;
+  padding: 0 0.4em;
+  border-radius: 999px;
+  background-color: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.75em;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---------- Log ---------- */
+
+.log-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.log {
+  height: 100%;
+  overflow-y: auto;
+  background-color: var(--surface);
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.log-inner {
+  position: relative;
+  width: 100%;
+}
+
+.msg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding: 1px 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg .time {
+  margin-right: 0.75em;
+  color: var(--muted);
+  user-select: none;
+}
+
+.cat-client {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.cat-error {
+  color: var(--err);
+}
+
+.jump {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.75rem;
+  background-color: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- Archipelago text styles ---------- */
+
+.p-self {
+  color: var(--p-self);
+}
+
+.p-other {
+  color: var(--p-other);
+}
+
+.item-normal {
+  color: var(--item-normal);
+}
+
+.item-prog {
+  color: var(--item-prog);
+}
+
+.item-useful {
+  color: var(--item-useful);
+}
+
+.item-trap {
+  color: var(--item-trap);
+}
+
+.loc {
+  color: var(--loc);
+}
+
+.entrance {
+  color: var(--entrance);
+}
+
+.c-bold {
+  font-weight: 700;
+}
+
+.c-underline {
+  text-decoration: underline;
+}
+
+.c-black {
+  color: var(--c-black);
+}
+
+.c-red {
+  color: var(--c-red);
+}
+
+.c-green {
+  color: var(--c-green);
+}
+
+.c-yellow {
+  color: var(--c-yellow);
+}
+
+.c-blue {
+  color: var(--c-blue);
+}
+
+.c-magenta {
+  color: var(--c-magenta);
+}
+
+.c-cyan {
+  color: var(--c-cyan);
+}
+
+.c-white {
+  color: var(--c-white);
+}
+
+.c-orange {
+  color: var(--c-orange);
+}
+
+.c-plum {
+  color: var(--item-prog);
+}
+
+.c-slateblue {
+  color: var(--item-useful);
+}
+
+.c-salmon {
+  color: var(--item-trap);
+}
+
+/* Background colors: tinted rather than solid so the text stays readable. */
+.c-black_bg {
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.c-red_bg {
+  background-color: rgba(238, 0, 0, 0.35);
+}
+
+.c-green_bg {
+  background-color: rgba(0, 200, 100, 0.3);
+}
+
+.c-yellow_bg {
+  background-color: rgba(250, 250, 120, 0.3);
+}
+
+.c-blue_bg {
+  background-color: rgba(100, 149, 237, 0.35);
+}
+
+.c-magenta_bg {
+  background-color: rgba(238, 0, 238, 0.3);
+}
+
+.c-cyan_bg {
+  background-color: rgba(0, 238, 238, 0.28);
+}
+
+.c-white_bg {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---------- Command input ---------- */
+
+.command-input {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border);
+  background-color: var(--surface);
+}
+
+.command-input input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace;
+}
+
+/* ---------- Hints ---------- */
+
+.hints {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--surface);
+}
+
+.hints-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.hints-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.hints-toolbar label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4em;
+  padding-bottom: 0.3rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.hints-toolbar select {
+  font-size: 0.9rem;
+  color: var(--text);
+  max-width: 12rem;
+}
+
+.hints-toolbar .search {
+  flex: 1 1 18rem;
+  min-width: 12rem;
+}
+
+.hints-toolbar .search input {
+  width: 100%;
+}
+
+/* Hint count above hint points, pushed to the right edge of the toolbar. */
+.hint-meta {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.3;
+}
+
+.hint-count {
+  font-size: 0.85em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.hints-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.empty {
+  margin: 2rem 1rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.hints-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.hints-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  text-align: left;
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.th-button {
+  width: 100%;
+  padding: 0.4em 0.75rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hints-table td {
+  padding: 0.3em 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+/* Slot names are short (16 characters at most), so never break them mid-word. */
+.hints-table td.player {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.hints-table tbody tr:hover {
+  background-color: var(--surface-2);
+}
+
+.hints-table .sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.row-found td {
+  opacity: 0.55;
+}
+
+.found-cell {
+  text-align: center;
+  color: var(--ok);
+}
+
+.status-tag {
+  display: inline-block;
+  padding: 0 0.5em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.st-priority {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.st-avoid {
+  color: var(--err);
+  border-color: var(--err);
+}
+
+.st-nopriority {
+  color: var(--muted);
+}
+
+.st-found {
+  color: var(--muted);
+}
