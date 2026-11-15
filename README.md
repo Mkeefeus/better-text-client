@@ -57,7 +57,8 @@ bun install
 bun run dev                          # the interface in a browser at http://localhost:1420
 bun run tauri dev                    # the full desktop app with hot reload
 bun run tauri build                  # installers for your platform
-bunx tsc --noEmit -p tsconfig.json   # type check (the build does not run it)
+bun run typecheck                    # type check the app and the tests (the build does not run it)
+bun test                             # connection and tracker tests against mock servers
 ```
 
 It is built with [Tauri](https://tauri.app) 2, [SolidJS](https://www.solidjs.com), TypeScript and [archipelago.js](https://www.npmjs.com/package/archipelago.js). [CLAUDE.md](CLAUDE.md) describes how the code is organized.
@@ -78,7 +79,7 @@ This project was developed with [Claude Code](https://claude.com/product/claude-
 **How it was checked**
 
 - The code is type-checked with TypeScript, and the release workflow checks that a tag matches the app version.
-- The connection and message handling were exercised during development against a throwaway mock Archipelago server written for the purpose. It is not part of this repository, and there is no automated test suite.
+- The connection, message, hint, history and stats handling is covered by tests in [`tests/`](tests) that run against a mock Archipelago server (`bun test`), and a workflow runs them on Linux and Windows for every push and pull request. The mock follows the upstream server's behavior but is not a real server, and the tests do not check how the interface looks or behaves on screen.
 - The author runs and tests the app on Linux. Windows builds come from CI and have had less hands-on testing.
 
 AI-written code can contain mistakes that these checks miss, so please [open an issue](../../issues) if something behaves wrongly.

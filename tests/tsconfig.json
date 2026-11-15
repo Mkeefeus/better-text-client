@@ -1,0 +1,9 @@
+{
+    // Type-checks the test scripts. Separate from the app's tsconfig so the Bun globals (Bun.serve,
+    // process, ...) do not leak into the frontend code.
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "types": ["bun"]
+    },
+    "include": ["./*.ts"]
+}

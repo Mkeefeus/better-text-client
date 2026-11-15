@@ -15,11 +15,12 @@ bun install
 bun run dev                     # Vite only, http://localhost:1420 (strict port). The UI runs fine in a plain browser.
 bun run tauri dev               # full desktop app with hot reload
 bun run tauri build [--debug]   # installers; --debug keeps devtools (right-click > Inspect)
-bunx tsc --noEmit -p tsconfig.json   # type check
+bun run typecheck                    # type-checks the app and the tests (tsc, two projects)
+bun test                             # all tests (bun:test); bun test tests/tracker.test.ts for one file
 ```
 
 - `bun run build` is only `vite build`; it does **not** type check. Run `tsc` separately (strict, plus `noUnusedLocals` / `noUnusedParameters`).
-- There is no linter and no test runner configured.
+- There is no linter. Tests run with Bun's built-in runner (see Verification); `@types/bun` is only needed for type-checking them. `.github/workflows/ci.yml` runs `typecheck`, `bun test` and `bun run build` on Ubuntu and Windows for every push to `main` and every pull request.
 - Linux builds need the WebKitGTK dev packages. Fedora: `webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel libxdo-devel`.
 - `bun run tauri dev` loads the page over `http://`, so it does not exercise the production `tauri://localhost` origin. Test network behavior in a built binary.
 - Releases: pushing a `v*` tag runs `.github/workflows/release.yml` (Windows + Ubuntu 22.04 builds, draft release, then published). The app version lives **only in `package.json`**: `src-tauri/tauri.conf.json` has `"version": "../package.json"` so Tauri reads it from there, and the `version` in `src-tauri/Cargo.toml` is unused and may be stale. The workflow fails unless the tag matches the `package.json` version (and `tauri.conf.json` still points at it), so bump `package.json` before tagging.
@@ -78,7 +79,6 @@ Virtualized with `@tanstack/solid-virtual`, rows absolutely positioned, items ke
 - `state/history.ts` caps the buffer (20 000 rows, trimmed in chunks) and publishes on a 200 ms timer, because `!release` / `!collect` announce thousands of items at once.
 - `ui/HistoryView.tsx` is virtualized with **fixed-height single-line rows** (ellipsis plus a `title` tooltip), so it never measures rows. The header is `position: sticky` inside the scroll element; this over-includes at most one row and is absorbed by overscan. While the user is scrolled away from the top, new rows are held back (rows with a higher `seq` are hidden) and an "N new" button releases them, so the row being read does not move.
 
-### Styling gotchas
 ### Stats
 
 - **Check progress is for the connected slot only.** `Connected` carries that slot's `checked_locations` / `missing_locations`, and the server sends later `RoomUpdate.checked_locations` only to clients on the same slot; there is no protocol way to get other slots' check lists. The card is titled "Your checks" for that reason. Whole-lobby progress comes from the WebHost tracker API instead (the "Completion by game" card, `adapter/tracker.ts`), described below.
@@ -97,6 +97,7 @@ Virtualized with `@tanstack/solid-virtual`, rows absolutely positioned, items ke
 - Stale responses are dropped with the same "is this still the current run" guard the connection uses, and every part of the card (link field, two fixed-height note lines, table, total row) always renders so an error or help text never pushes the table down.
 - Not verified against a real tracker (only fixtures shaped like the upstream payloads and a mock HTTP server). A plain-`http` tracker on a LAN address may be blocked by the webview when it is served from `tauri://`; `https` sites and `http://localhost` should work.
 
+### Styling gotchas
 
 - WebKitGTK ignores `background-color` on native `<select>`, giving light text on a light box in dark mode. `App.css` therefore draws selects itself (`appearance: none` plus a gradient arrow) and sets `color-scheme: light dark`. Keep this when restyling form controls.
 - Only the server URL and slot name are persisted (`localStorage`); the password is intentionally never stored.
@@ -107,4 +108,13 @@ Use the upstream Archipelago repo (`docs/network protocol.md`, `CommonClient.py`
 
 ## Verification
 
-There are no automated tests in the repo. The adapter (messages, hints, history, reconnect, error paths) was checked with a throwaway mock Archipelago server that is not committed; remember that the mock must echo a `Get` request's `uuid` back in `Retrieved`, as the real server does. UI behavior, virtualization, resize smoothness and the Windows webview can only be confirmed by running the app.
+Tests live in `tests/` and use `bun:test` (`bun test`, which finds `*.test.ts`). CI runs them (see Commands).
+
+- `tests/protocol.test.ts` runs the real adapter (`src/adapter/archipelago.ts`) and state modules against a **mock Archipelago server** (`Bun.serve` websocket) and asserts on the resulting state: login, the message log, hints, History, Stats (checks, received and sent items, player status, room info) and the error paths (refusal, drop mid-login, unreachable). Keep the mock faithful to upstream `MultiServer.py`: `Connected`, the full `ReceivedItems` sync and the join message arrive in **one** websocket message, `Get` must echo the request's `uuid` in `Retrieved`, hints are stored under both players they involve, and `LocationInfo.player` is the item's receiver.
+- `tests/tracker.test.ts` covers the tracker link parser, the per-game aggregation and the wrong-room guard (pure functions), and the fetch/poll flow against a mock HTTP server serving fixtures shaped like the upstream `/api/static_tracker` and `/api/tracker` payloads.
+- `bunfig.toml` preloads `tests/setup.ts` before every test file: it stubs `requestAnimationFrame`. Under `bun test`, `solid-js` resolves to its server build where signals are plain getters and setters, which is what these tests want (they read state, not the DOM). They cannot test rendering.
+- **Both files are scenarios, not independent unit tests:** one connection (or one tracker run) is carried from test to test, so they must run in file order and `.only` / `.skip` will break the tests after them.
+- **Do not sleep; wait for the state you expect** with `until()` from `tests/helpers.ts`, so the tests are fast on a fast machine and do not flake on a slow CI runner. For a "this must NOT happen" check, send an event that *does* count right after it, wait for that, and only then assert: messages are handled in order, so the earlier one has certainly been processed.
+- `tests/tsconfig.json` type-checks the tests with the Bun types, separate from the app's `tsconfig.json` so Bun globals do not leak into the frontend.
+
+Not covered by any test: UI behavior, virtualization, resize smoothness, styling, and the Windows webview. Those can only be confirmed by running the app. The tracker code has only been run against mock data, never a real tracker.

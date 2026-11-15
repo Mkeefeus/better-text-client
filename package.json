@@ -8,7 +8,9 @@
         "dev": "vite",
         "build": "vite build",
         "serve": "vite preview",
-        "tauri": "tauri"
+        "tauri": "tauri",
+        "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tests/tsconfig.json",
+        "test": "bun test"
     },
     "license": "MIT",
     "dependencies": {
@@ -20,9 +22,10 @@
         "solid-js": "^1.9.3"
     },
     "devDependencies": {
+        "@tauri-apps/cli": "^2",
+        "@types/bun": "^1.4.4",
         "typescript": "~6.0.3",
         "vite": "^8.0.16",
-        "vite-plugin-solid": "^2.11.12",
-        "@tauri-apps/cli": "^2"
+        "vite-plugin-solid": "^2.11.12"
     }
 }
