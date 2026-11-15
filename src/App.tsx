@@ -1,27 +1,16 @@
-import { createEffect, createMemo, createSignal, Match, Switch } from 'solid-js';
+import { createSignal, Match, Switch } from 'solid-js';
 import ConnectBar from './ui/ConnectBar';
 import CommandInput from './ui/CommandInput';
 import HintsView from './ui/HintsView';
 import HistoryView from './ui/HistoryView';
 import LogView from './ui/LogView';
-import { hints } from './state/hints';
-import { clearMessages, lastMessageId, messages } from './state/messages';
+import { clearMessages, messages } from './state/messages';
 import './App.css';
 
 type Tab = 'log' | 'hints' | 'history';
 
 function App() {
   const [tab, setTab] = createSignal<Tab>('log');
-
-  // While the Hints tab is open, count log messages that arrived unseen so the Log tab can show a badge.
-  const [seenMessageId, setSeenMessageId] = createSignal(0);
-  createEffect(() => {
-    if (tab() === 'log') setSeenMessageId(lastMessageId());
-  });
-  const unread = () => (tab() === 'log' ? 0 : lastMessageId() - seenMessageId());
-
-  // The tab badge counts unfound hints for items you need, not every hint in the room.
-  const unfoundHints = createMemo(() => hints().filter((hint) => hint.forMe && !hint.found).length);
 
   return (
     <div class="app">
@@ -36,7 +25,6 @@ function App() {
           onClick={() => setTab('log')}
         >
           Log
-          {unread() > 0 && <span class="badge">{unread() > 99 ? '99+' : unread()}</span>}
         </button>
         <button
           type="button"
@@ -44,10 +32,8 @@ function App() {
           aria-selected={tab() === 'hints'}
           classList={{ active: tab() === 'hints' }}
           onClick={() => setTab('hints')}
-          title="The badge counts unfound hints for items you need"
         >
           Hints
-          {unfoundHints() > 0 && <span class="badge">{unfoundHints()}</span>}
         </button>
         <button
           type="button"

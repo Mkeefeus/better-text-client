@@ -1,5 +1,5 @@
 import { createMemo, For, onMount, Show } from 'solid-js';
-import { hintPoints, status } from '../state/connection';
+import { status } from '../state/connection';
 import { compareText, matchesClass, searchTerms } from '../state/filtering';
 import {
   classFilter,
@@ -201,13 +201,6 @@ export default function HintsView() {
           <span class="hint-count" aria-live="polite">
             {visible().length} of {hints().length} hints
           </span>
-          <Show when={hintPoints()}>
-            {(points) => (
-              <span class="hint-points" title="Hint points you have / points needed for one hint">
-                Hint points {points().points} / {points().cost}
-              </span>
-            )}
-          </Show>
         </div>
       </div>
 

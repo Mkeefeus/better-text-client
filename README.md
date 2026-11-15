@@ -8,8 +8,9 @@ The official text client can lag, especially while its window is being resized. 
 
 - **Log:** chat, item sends, hints, joins and server messages, colored like the official client (progression, useful and trap items each have their own color, and your own name stands out). It follows new messages and shows a "N new" button when you scroll up.
 - **Commands:** type chat, or a server command such as `!hint Item Name`, `!help` or `!release`. Up and down arrows recall what you typed earlier.
-- **Hints tab:** every hint in the room, not just yours. Search by item, location, player or game (every word must match), filter by who it is for, whose world it is in, status and item type, and sort by any column. The toolbar shows your hint points.
+- **Hints tab:** every hint in the room, not just yours. Search by item, location, player or game (every word must match), filter by who it is for, whose world it is in, status and item type, and sort by any column.
 - **History tab:** the items that have been found, with the same kind of search and filters. See the note under [Limitations](#limitations).
+- **Hint points:** your current hint points and the cost of a hint are shown at the top, next to your slot.
 - **Light and dark themes:** it follows your system setting.
 
 ## Install
