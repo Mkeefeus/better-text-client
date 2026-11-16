@@ -68,7 +68,7 @@ export default function CommandInput() {
           setText(event.currentTarget.value);
         }}
         onKeyDown={onKeyDown}
-        placeholder={connected() ? 'Chat, or a command such as  !hint Item Name  or  !help' : 'Connect to send messages'}
+        placeholder={connected() ? 'Chat, or a command such as !hint Item Name or !help' : 'Connect to send messages'}
         aria-label="Message or command"
         spellcheck={false}
         autocomplete="off"

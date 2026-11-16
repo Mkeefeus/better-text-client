@@ -1,7 +1,7 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup } from 'solid-js';
+import { createMemo, For, Show } from 'solid-js';
 import type { JSX } from 'solid-js';
-import { parseTrackerLink, refreshTracker, startTracker, stopTracker } from '../adapter/tracker';
-import { hintPoints, identity, roster, status } from '../state/connection';
+import { parseSiteLink } from '../adapter/tracker';
+import { hintPoints, roster, serverPort, status } from '../state/connection';
 import { compareText } from '../state/filtering';
 import { hints } from '../state/hints';
 import { checks, clientStatuses, findsSeen, received, room, sent } from '../state/stats';
@@ -9,16 +9,15 @@ import type { ItemCounts } from '../state/stats';
 import { clientStatusClass, clientStatusLabel, permissionLabel } from '../state/style';
 import {
   completion,
-  loadSavedLink,
-  rosterMatchesTracker,
-  saveLink,
-  setTrackerLink,
+  linkTrusted,
+  portCheck,
+  siteLink,
   trackerError,
-  trackerLink,
-  trackerSlots,
   trackerStatus,
   trackerUpdated,
+  websiteRoom,
 } from '../state/tracker';
+import { openExternal } from './external';
 
 // Every card always renders all of its rows, with "—" where there is no data yet, so nothing
 // appears, disappears or shifts as data arrives.
@@ -33,6 +32,25 @@ function percent(part: number | undefined, whole: number | undefined): string {
   if (part === undefined || !whole) return DASH;
   return `${((100 * part) / whole).toFixed(1)}%`;
 }
+
+/** 7200 -> "2 h", 5400 -> "1.5 h", 600 -> "10 min". */
+function formatDuration(seconds: number): string {
+  const hours = seconds / 3600;
+  if (hours >= 1) return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} h`;
+  return `${Math.max(1, Math.round(seconds / 60))} min`;
+}
+
+/** "just now", "12 min ago", "3 h ago", "5 days ago". */
+function ago(date: Date): string {
+  const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}
+
+const timeOfDay = (date: Date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 function Card(props: { title: string; note?: string; wide?: boolean; children: JSX.Element }) {
   return (
@@ -139,58 +157,61 @@ export default function StatsView() {
     return players().filter((player) => statuses[player.slot] === 30).length;
   });
 
-  // --- Completion by game (needs the room's tracker link) ---
-  const [draft, setDraft] = createSignal(trackerLink());
-  const [linkProblem, setLinkProblem] = createSignal('');
-  const parsedLink = createMemo(() => parseTrackerLink(trackerLink()));
-  const team = () => identity()?.team ?? 0;
-
-  // Each room remembers its own link. Never carry one over to a different room.
-  createEffect(
-    on(
-      () => room()?.seed,
-      (seed) => {
-        if (!seed) return;
-        const saved = loadSavedLink(seed);
-        setTrackerLink(saved);
-        setDraft(saved);
-      },
-    ),
-  );
-
-  // Load and refresh only while this tab is open: the tracker data is large.
-  createEffect(() => {
-    const link = parsedLink();
-    if (!link.ok) return;
-    startTracker(link, team());
-    onCleanup(stopTracker);
-  });
-
-  function commitLink(text: string) {
-    const result = parseTrackerLink(text);
-    if (result.ok || result.problem === 'empty') {
-      setLinkProblem('');
-      setTrackerLink(text.trim());
-      const seed = room()?.seed;
-      if (seed) saveLink(seed, text.trim());
-    } else if (result.problem === 'room') {
-      setLinkProblem('That is the room link. Open the room page and use its “Multiworld Tracker” link instead.');
-    } else {
-      setLinkProblem('That is not a tracker link. It should look like https://archipelago.gg/tracker/…');
+  // --- What the website says about the room (the link is entered in RoomLinkBar) ---
+  const site = () => websiteRoom();
+  const portLabel = () => {
+    const port = site()?.lastPort;
+    if (port === undefined) return DASH;
+    if (port === 0) return 'Not started yet';
+    if (port < 0) return 'Failed to start';
+    switch (portCheck()) {
+      case 'match':
+        return `${port} · matches your connection`;
+      case 'mismatch':
+        return `${port} · you are on ${serverPort()}`;
+      default:
+        return String(port);
     }
-  }
+  };
+  const activityLabel = () => {
+    const at = site()?.lastActivity;
+    return at ? `${at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} (${ago(at)})` : DASH;
+  };
+  const shutdownLabel = () => {
+    const current = site();
+    if (!current || current.timeoutSeconds === undefined) return DASH;
+    const after = formatDuration(current.timeoutSeconds);
+    const at = current.lastActivity;
+    if (!at) return `After ${after} without checks`;
+    const stopAt = new Date(at.getTime() + current.timeoutSeconds * 1000);
+    if (stopAt.getTime() < Date.now()) return `After ${after} without checks · probably stopped`;
+    return `After ${after} without checks · at about ${timeOfDay(stopAt)}`;
+  };
+  const trackerLabel = () => {
+    const current = site();
+    if (!current) return trackerStatus() === 'ready' ? 'Yes' : DASH;
+    return current.trackerId ? 'Yes' : 'No tracker for this room';
+  };
 
-  const roomMatch = createMemo(() => (connected() ? rosterMatchesTracker(roster(), trackerSlots()) : 'unknown'));
-  const linkWarning = () =>
-    linkProblem() ||
-    (roomMatch() === 'mismatch'
-      ? 'This tracker does not look like the room you are connected to (different players or games). Check the link.'
-      : '');
-  const linkNote = () =>
-    linkWarning() ||
-    (trackerLink()
-      ? ''
-      : 'Paste the “Multiworld Tracker” link from the room’s page on the website (it looks like https://archipelago.gg/tracker/…). The game connection only reports your own slot’s checks, so lobby-wide progress comes from the website. Rooms without a tracker, and rooms hosted elsewhere, cannot show it.');
+  // The roster once connected; before that, the website's list (slot = position in the list).
+  const tableRows = createMemo(() => {
+    if (sortedPlayers().length > 0) {
+      return sortedPlayers().map((player) => ({
+        slot: player.slot,
+        name: player.name,
+        game: player.game,
+        isMe: player.isMe,
+        live: true,
+      }));
+    }
+    return (site()?.players ?? []).map((player) => ({
+      slot: player.slot,
+      name: player.name,
+      game: player.game,
+      isMe: false,
+      live: false,
+    }));
+  });
   const trackerLine = () => {
     switch (trackerStatus()) {
       case 'loading':
@@ -283,22 +304,49 @@ export default function StatsView() {
           </dl>
         </Card>
 
-        <Card title="Room">
-          <dl>
-            <Row label="Server version" value={room()?.serverVersion ?? DASH} />
-            <Row label="Generated with" value={room()?.generatorVersion ?? DASH} />
-            <Row label="Seed" value={room()?.seed ?? DASH} />
-            <Row label="Players" value={connected() ? count(players().length) : DASH} />
-            <Row
-              label="Finds seen"
-              value={connected() ? count(findsSeen()) : DASH}
-              title="Items found by anyone since you connected"
-            />
-            <Row label="Hint cost" value={room() ? (room()!.hintCostPercent > 0 ? `${room()!.hintCostPercent}% of locations` : 'Free') : DASH} />
-            <Row label="!release" value={permissionLabel(room()?.permissions.release)} />
-            <Row label="!collect" value={permissionLabel(room()?.permissions.collect)} />
-            <Row label="!remaining" value={permissionLabel(room()?.permissions.remaining)} />
-          </dl>
+        <Card
+          title="Room"
+          wide
+          note="The left column comes from the game server you are connected to. The right column comes from the room's page on the website: add its link in the bar at the top."
+        >
+          <div class="room-columns">
+            <dl>
+              <Row label="Server version" value={room()?.serverVersion ?? DASH} />
+              <Row label="Generated with" value={room()?.generatorVersion ?? DASH} />
+              <Row label="Seed name" value={room()?.seed ?? DASH} />
+              <Row label="Players" value={connected() ? count(players().length) : DASH} />
+              <Row
+                label="Finds seen"
+                value={connected() ? count(findsSeen()) : DASH}
+                title="Items found by anyone since you connected"
+              />
+              <Row
+                label="Hint cost"
+                value={room() ? (room()!.hintCostPercent > 0 ? `${room()!.hintCostPercent}% of locations` : 'Free') : DASH}
+              />
+              <Row label="!release" value={permissionLabel(room()?.permissions.release)} />
+              <Row label="!collect" value={permissionLabel(room()?.permissions.collect)} />
+              <Row label="!remaining" value={permissionLabel(room()?.permissions.remaining)} />
+            </dl>
+            <dl>
+              <Row
+                label="Port"
+                value={portLabel()}
+                title="The port the website last started this room on. A restarted room can get a different port."
+              />
+              <Row
+                label="Last activity"
+                value={activityLabel()}
+                title="Approximate: the website only updates this when the room saves, which happens when a check is made."
+              />
+              <Row
+                label="Idle shutdown"
+                value={shutdownLabel()}
+                title="The website stops a room with no checks for this long. Opening the room page starts it again."
+              />
+              <Row label="Tracker" value={trackerLabel()} />
+            </dl>
+          </div>
         </Card>
 
         <Card title="Players" wide>
@@ -318,15 +366,18 @@ export default function StatsView() {
                   <th class="num" title="Items other players found for you, counted from everything you have received. Starting items come from the server, not a player.">
                     Sent to you
                   </th>
+                  <th title="The patch or data file for this slot, from the room's page on the website. Needs the room link.">
+                    Download
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 <For
-                  each={sortedPlayers()}
+                  each={tableRows()}
                   fallback={
                     <tr>
-                      <td colSpan={4} class="stat-muted">
-                        {connected() ? 'No players.' : 'Connect to a room to see its players.'}
+                      <td colSpan={5} class="stat-muted">
+                        {connected() ? 'No players.' : 'Connect to a room, or add its link, to see its players.'}
                       </td>
                     </tr>
                   }
@@ -336,11 +387,24 @@ export default function StatsView() {
                       <td class={`player ${player.isMe ? 'p-self' : 'p-other'}`}>{player.name}</td>
                       <td>{player.game}</td>
                       <td>
-                        <span class={`status-tag ${clientStatusClass(clientStatuses()[player.slot])}`}>
-                          {clientStatusLabel(clientStatuses()[player.slot])}
+                        <span class={`status-tag ${clientStatusClass(player.live ? clientStatuses()[player.slot] : undefined)}`}>
+                          {clientStatusLabel(player.live ? clientStatuses()[player.slot] : undefined)}
                         </span>
                       </td>
-                      <td class="num">{player.isMe ? DASH : count(received() ? (received()!.bySender[player.slot] ?? 0) : undefined)}</td>
+                      <td class="num">
+                        {player.isMe || !player.live
+                          ? DASH
+                          : count(received() ? (received()!.bySender[player.slot] ?? 0) : undefined)}
+                      </td>
+                      <td>
+                        <Show when={linkTrusted() ? site()?.downloads[player.slot] : undefined} fallback={DASH}>
+                          {(url) => (
+                            <button type="button" class="link-button" onClick={() => void openExternal(url())}>
+                              Download
+                            </button>
+                          )}
+                        </Show>
+                      </td>
                     </tr>
                   )}
                 </For>
@@ -352,33 +416,10 @@ export default function StatsView() {
         <Card
           title="Completion by game"
           wide
-          note="Locations checked over all locations, summed over every player of each game. Needs the room's tracker link."
+          note="Locations checked over all locations, summed over every player of each game. Needs the room link."
         >
-          <div class="tracker-controls">
-            <input
-              class="tracker-input"
-              type="url"
-              value={draft()}
-              placeholder="Tracker link, e.g. https://archipelago.gg/tracker/…"
-              aria-label="Tracker link"
-              spellcheck={false}
-              onInput={(event) => setDraft(event.currentTarget.value)}
-              onChange={(event) => commitLink(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') commitLink(event.currentTarget.value);
-              }}
-            />
-            <button
-              type="button"
-              onClick={refreshTracker}
-              disabled={!parsedLink().ok || trackerStatus() === 'loading'}
-              title="Reload now. The website only refreshes tracker data about once a minute, so this does nothing sooner."
-            >
-              Refresh
-            </button>
-          </div>
-          <p class="stat-note" classList={{ warn: linkWarning() !== '' }}>
-            {linkNote()}
+          <p class="stat-note stat-status">
+            {parseSiteLink(siteLink()).ok ? 'Uses the room link from the bar at the top.' : 'Add the room link in the bar at the top to fill this in.'}
           </p>
           <p class="stat-note stat-status" classList={{ warn: trackerStatus() === 'error' }} aria-live="polite">
             {trackerLine()}

@@ -4,6 +4,7 @@ import CommandInput from './ui/CommandInput';
 import HintsView from './ui/HintsView';
 import HistoryView from './ui/HistoryView';
 import LogView from './ui/LogView';
+import RoomLinkBar from './ui/RoomLinkBar';
 import StatsView from './ui/StatsView';
 import { clearMessages, messages } from './state/messages';
 import './App.css';
@@ -15,7 +16,10 @@ function App() {
 
   return (
     <div class="app">
-      <ConnectBar />
+      <header>
+        <ConnectBar />
+        <RoomLinkBar />
+      </header>
 
       <nav class="tabs" role="tablist">
         <button

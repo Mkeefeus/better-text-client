@@ -15,6 +15,25 @@ export const [identity, setIdentity] = createSignal<{ name: string; game: string
  */
 export const [hintPoints, setHintPoints] = createSignal<{ points: number; cost: number; perCheck: number } | undefined>();
 
+/** The port of the server we are connected to, to check it against the room the website describes. */
+export const [serverPort, setServerPort] = createSignal<number | undefined>();
+
+/**
+ * The port in a server address, parsed the way archipelago.js parses it: a scheme is optional, and
+ * a missing port (or one the URL parser treats as the scheme's default) is 38281.
+ */
+export function portFromAddress(address: string): number | undefined {
+  const trimmed = address.trim();
+  if (!trimmed) return undefined;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `ws://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    return url.port ? Number(url.port) : 38281;
+  } catch {
+    return undefined;
+  }
+}
+
 // --- Saved connection details -------------------------------------------------
 // Only the URL and slot name are remembered. The password is deliberately never stored.
 

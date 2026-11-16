@@ -44,15 +44,34 @@ export interface RosterEntry {
   isGroup: boolean;
 }
 
+/**
+ * How well a History row's time is known.
+ * - `exact`: seen as it happened, on this client's clock.
+ * - `estimated`: found while this client was not connected; placed between known bounds.
+ * - `unknown`: found at a time nothing bounds from below (typically before the first connect).
+ */
+export type TimeKind = 'exact' | 'estimated' | 'unknown';
+
 /** One item that was found (a location was checked). */
 export interface HistoryRow {
   /** `${finderSlot}-${locationId}`: a location is checked at most once, so this is unique. */
   id: string;
   /**
-   * Position in the history: 1 is the first item recorded. Shown as "Order". Items you received before
-   * connecting come first, in the order you received them (their real order), then live finds as they happen.
+   * Arrival order in this run of the app, 1 for the first row recorded. Not shown; it only lets
+   * the History tab hold back rows that arrived while the user was scrolled down.
    */
   seq: number;
+  /**
+   * When it was found, in milliseconds since 1970 (see `timeKind`). For `unknown` rows this is
+   * instead a position between -1 and 0 that only orders them: they sort before every timed row.
+   */
+  time: number;
+  timeKind: TimeKind;
+  /** Pre-formatted, so rows never format dates while rendering. */
+  timeLabel: string;
+  /** Raw ids, kept so the row can be saved and rebuilt (names are looked up again). */
+  itemId: number;
+  locationId: number;
   itemName: string;
   itemFlags: number;
   locationName: string;

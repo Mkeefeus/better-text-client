@@ -9,8 +9,8 @@ The official text client can lag, especially while its window is being resized. 
 - **Log:** chat, item sends, hints, joins and server messages, colored like the official client (progression, useful and trap items each have their own color, and your own name stands out). It follows new messages and shows a "N new" button when you scroll up.
 - **Commands:** type chat, or a server command such as `!hint Item Name`, `!help` or `!release`. Up and down arrows recall what you typed earlier.
 - **Hints tab:** every hint in the room, not just yours. Search by item, location, player or game (every word must match), filter by who it is for, whose world it is in, status and item type, and sort by any column.
-- **History tab:** the items that have been found, with the same kind of search and filters. See the note under [Limitations](#limitations).
-- **Stats tab:** how many of your checks are done and how many remain (with a progress bar and how soon your next hint is), the items you have received and the items you have sent to other players, each by type, a summary of the room's hints, the room's settings (versions, the `!release`, `!collect` and `!remaining` permissions, hint cost), and every player's status and game, including who has reached their goal. If you paste the room's tracker link (see below), it also shows how complete the whole lobby is, game by game.
+- **History tab:** the items that have been found and when, with the same kind of search and filters. It is kept between runs, per room and slot. Finds made while the client was closed are filled in when you reconnect, at an estimated time marked ≈. See the note under [Limitations](#limitations).
+- **Stats tab:** how many of your checks are done and how many remain (with a progress bar and how soon your next hint is), the items you have received and the items you have sent to other players, each by type, a summary of the room's hints, the room's settings (versions, the `!release`, `!collect` and `!remaining` permissions, hint cost), and every player's status and game, including who has reached their goal. If you paste the room's page link (see below), it also shows how complete the whole lobby is, game by game, and what the website knows about the room (port, last activity, downloads).
 - **Hint points:** your current hint points and the cost of a hint are shown at the top, next to your slot.
 - **Light and dark themes:** it follows your system setting.
 
@@ -37,21 +37,25 @@ None of the downloads are code-signed, so Windows SmartScreen may warn you befor
 2. Click **Connect**.
 3. Use the **Log**, **Hints** and **History** tabs, and the box at the bottom to chat or send commands.
 
-The server address and slot name are remembered between runs. The password is never saved.
+The server address and slot name are remembered between runs, and so is each room's History (the last 10 rooms). The password is never saved.
 
-### Lobby completion by game
+### The room link: lobby completion, port, activity and downloads
 
-The Stats tab can show how many checks are done across the whole room, game by game, with a total for the lobby. The game connection can't provide this, so it reads the Archipelago website's tracker instead:
+The game connection only tells this client about your own slot. Paste the room's page address from the website (it looks like `https://archipelago.gg/room/…`) into the **room link bar** under the connection bar and press Enter, and the client also reads what the website knows about the room (shown on the Stats tab):
 
-1. Open the room's page on the website and copy the address of its **Multiworld Tracker** link (it looks like `https://archipelago.gg/tracker/…`).
-2. Paste it into the **Completion by game** card on the Stats tab and press Enter.
+- **Completion by game:** how many checks are done across the whole lobby, game by game, with a total. (The server's `!status` command can report per-player counts, but using it posts a line in the room's chat for everyone, so this client does not.)
+- **Port, last activity and idle shutdown:** the port the website started the room on (compared with the one you are connected to), when the room last saved (roughly, when a check was last made), and when the website will stop an idle room.
+- **Downloads:** a Download button per player in the Players table, plus buttons that open the room page and the tracker in your browser.
+- **A complete History:** the tracker lists every player's received items, so with the link set the History tab also gets the finds between other players that were made while this client was closed or disconnected. They are placed, at an estimated time, in the stretch when you were away. It is only used when it agrees with what the game connection says you received, so a tracker from a different room is ignored.
+- **Players before you connect:** the Players table fills in from the website's list.
 
-The link is remembered for that room. The data is up to a minute old, because that is how often the website refreshes it, and it is only loaded while the Stats tab is open. This needs a room hosted on the website that has a tracker; servers you host yourself can't use it.
+The link is remembered for a room once the port or the players match the room you are connected to, so a wrong paste is never saved. The data is up to a minute old, because that is how often the website refreshes it, and it is refreshed in the background, about once a minute, for as long as a link is set. A tracker link (`…/tracker/…`) also works but only gives the completion table. This needs a room hosted on the website; servers you host yourself can't use it, and a room without a tracker can't show completion.
 
 ## Limitations
 
-- **History starts when you connect.** The Archipelago server never replays other players' finds, so those are recorded only from the moment you connect. Items you have received are listed in full. The protocol has no timestamps for items, so the History tab shows an order number instead of a time.
-- **Check progress is for your own slot only, unless you add the tracker link.** The Archipelago server only reports a slot's checked and remaining locations to the clients on that slot, so other players' check counts come only from the website's tracker (see [Lobby completion by game](#lobby-completion-by-game)).
+- **History times are exact only for finds the client saw happen.** Archipelago records no time for found items, so a find gets its real time only if this client was connected when it happened. The History is saved per room, so those times are kept between runs. Finds made while the client was closed are filled in when you reconnect and given an estimated time (≈) in the stretch you were away; each player's items still appear in their real order. Short absences come out close (in a test against a real room's server log, an hour away put most finds within minutes). A long absence spreads its finds evenly over the whole time, even across a stretch when nothing happened, such as a server shut down overnight. Finds from before you first joined a room have no time at all and show as "earlier".
+- **History can miss finds between other players unless you add the room link.** Your own received and sent items are always filled in. Other players' finds made while you were away are only filled in from the website's tracker (see [The room link](#the-room-link-lobby-completion-port-activity-and-downloads)), which needs a room hosted on the website with a tracker. Without it, those are recorded only while you are connected.
+- **Check progress is for your own slot only, unless you add the room link.** The Archipelago server only sends a slot's checked and remaining locations to the clients on that slot, so this client shows other players' check counts only from the website's tracker (see [The room link](#the-room-link-lobby-completion-port-activity-and-downloads)). The server's `!status` command reports each player's checks as a count, but it posts the command to the room's chat, and no normal request returns *which* locations other players have checked.
 - **No `/` commands.** The official client's client-side commands (such as `/received`) are not implemented. If you type one, it stays on your machine and is not sent to the room. `!` commands work normally.
 - **No automatic reconnect.** If the connection drops, click **Connect** again.
 - **Hints and history belong to a single team.** Rooms with several teams are untested.

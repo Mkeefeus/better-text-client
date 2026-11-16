@@ -3,10 +3,21 @@
 
 import { Client, LoginError, slotTypes } from 'archipelago.js';
 import type { API, MessageNode } from 'archipelago.js';
-import { setHintPoints, setIdentity, setRoster, setStatus } from '../state/connection';
+import { portFromAddress, setHintPoints, setIdentity, setRoster, setServerPort, setStatus } from '../state/connection';
 import { clearHints, replaceHints } from '../state/hints';
-import { addHistory, clearHistory } from '../state/history';
-import type { NewHistoryRow } from '../state/history';
+import { addHistory, clearHistory, getHistoryRow, retimeHistory } from '../state/history';
+import type { NewHistoryRow, RowTime } from '../state/history';
+import {
+  beginHistorySession,
+  closeRoomHistory,
+  endHistorySession,
+  KINDS,
+  noteOwnCoverage,
+  noteTeamCoverage,
+  openRoomHistory,
+} from '../state/historyStore';
+import { estimateTimes } from '../state/historyTimes';
+import type { ChainItem, Coverage, KnownTime } from '../state/historyTimes';
 import { pushClientMessage, pushMessage } from '../state/messages';
 import {
   countFind,
@@ -19,7 +30,10 @@ import {
   setRoom,
 } from '../state/stats';
 import { itemClass, itemKind } from '../state/style';
-import type { HintRow, MessageCategory, Span } from '../state/types';
+import { clock, historyTimeLabel } from '../state/timing';
+import { getTrackerFinds, rosterCheck, setTrackerFindsListener } from '../state/tracker';
+import type { TrackerChains } from '../state/tracker';
+import type { HintRow, MessageCategory, Span, TimeKind } from '../state/types';
 
 export interface ConnectOptions {
   url: string;
@@ -33,8 +47,13 @@ class Dropped extends Error {}
 /** The current connection. Cleared on disconnect so late events from an old client are ignored. */
 let client: Client | undefined;
 
-/** Which room and slot the history belongs to, so reconnecting to the same one keeps it. */
-let lastRoomKey: string | undefined;
+/**
+ * Which room and slot the History in memory belongs to (`${seed}|${team}|${slot}`). Per slot,
+ * because which rows are "mine" and the own-items coverage depend on it (one person often plays
+ * two slots). Reconnecting to the same one keeps it; a different one saves it and loads that
+ * one's saved History instead.
+ */
+let historyRoomKey: string | undefined;
 
 /** Locations asked about per LocationScouts packet, to keep any one packet and its reply a sane size. */
 const SCOUT_CHUNK = 2000;
@@ -48,6 +67,7 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
   setRoster([]);
   setIdentity(undefined);
   setHintPoints(undefined);
+  setServerPort(undefined);
   setStatus('connecting');
   pushClientMessage('client', `Connecting to ${url} as "${slot}"…`);
 
@@ -137,6 +157,88 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
   let people: Map<number, PlayerInfo> | undefined;
   const getPeople = () => (people ??= buildPeople(c, selfTeam));
 
+  // The History is kept between runs (state/historyStore.ts). A find seen live gets its real time.
+  // One this connection learns about later (its own item sync, its sent-items scouts, the website
+  // tracker) happened while this client was not connected, so it is placed in that gap, keeping
+  // each receiver's real order (state/historyTimes.ts). These are the bounds for that, set when
+  // the connection starts.
+  let seedName = '';
+  let sessionStart = 0;
+  let coverage: Coverage = { online: [] };
+  /**
+   * Rows given an estimated time during this connection, with the rank of the source that placed
+   * them. A source at least as good may place them again; a weaker one uses them as they are.
+   */
+  const estimatedNow = new Map<string, Source>();
+
+  const rowTime = (time: number, kind: TimeKind): RowTime => ({
+    time,
+    timeKind: kind,
+    timeLabel: historyTimeLabel(time, kind),
+  });
+
+  /**
+   * Add finds this connection learned about but did not see happen, at estimated times. Each chain
+   * is a list whose order is exact (one receiver's items, oldest first). A list with no useful
+   * order can be passed as one chain too; its items are then just spread over the gap.
+   */
+  const placeFinds = (chains: readonly (readonly Find[])[], source: Source) => {
+    const finds = new Map<string, Find>();
+    const items: ChainItem[][] = chains.map((chain) =>
+      chain.map((find) => {
+        const id = `${find.finder}-${find.location}`;
+        if (!finds.has(id)) finds.set(id, find); // an item-link group's item is in several lists
+        return { id, mine: find.finder === selfSlot || find.receiver === selfSlot };
+      }),
+    );
+    const known = new Map<string, KnownTime>();
+    for (const id of finds.keys()) {
+      const row = getHistoryRow(id);
+      const placedBy = estimatedNow.get(id);
+      if (row && (placedBy === undefined || placedBy > source)) known.set(id, { time: row.time, kind: row.timeKind });
+    }
+    const estimates = estimateTimes(items, known, coverage, sessionStart);
+
+    const names = getPeople();
+    const fresh: NewHistoryRow[] = [];
+    const retimed = new Map<string, RowTime>();
+    for (const [id, estimate] of estimates) {
+      estimatedNow.set(id, source);
+      const time = rowTime(estimate.time, estimate.kind);
+      if (getHistoryRow(id)) retimed.set(id, time);
+      else fresh.push(toHistoryRow(c, names, selfSlot, finds.get(id)!, time));
+    }
+    retimeHistory(retimed);
+    addHistory(fresh);
+  };
+
+  // The History belongs to the room (seed), team and slot. Decided here, not after login() resolves:
+  // the first ReceivedItems arrives in the same message as Connected, right after it, and must
+  // land in the right room's History. Registered after the stats handler above, so the team and
+  // slot are already known.
+  c.socket.on(
+    'connected',
+    safe((packet) => {
+      if (!isCurrent()) return;
+      const now = clock.now();
+      sessionStart = now;
+      estimatedNow.clear();
+      const key = `${seedName}|${packet.team}|${packet.slot}`;
+      if (key !== historyRoomKey) {
+        closeRoomHistory(); // saves the previous room's
+        clearHistory();
+        historyRoomKey = key;
+        const names = getPeople();
+        addHistory(
+          openRoomHistory(key).map(([finder, receiver, item, location, flags, kind, time]) =>
+            toHistoryRow(c, names, selfSlot, { finder, receiver, item, location, flags }, rowTime(time, KINDS[kind] ?? 'unknown')),
+          ),
+        );
+      }
+      coverage = beginHistorySession(now);
+    }),
+  );
+
   c.socket.on(
     'roomUpdate',
     safe((packet) => {
@@ -163,16 +265,11 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
     }),
   );
 
-  // Keep the history when reconnecting to the same room and slot; drop it for a different one.
-  // This must be decided here, not after login() resolves: the first ReceivedItems usually
-  // arrives in the same message as Connected and would be wiped by a later clear.
   c.socket.on(
     'roomInfo',
     safe((packet) => {
       if (!isCurrent()) return;
-      const key = `${packet.seed_name}|${slot}`;
-      if (key !== lastRoomKey) clearHistory();
-      lastRoomKey = key;
+      seedName = packet.seed_name;
 
       const version = (v: { major: number; minor: number; build: number }) => `${v.major}.${v.minor}.${v.build}`;
       setRoom({
@@ -196,37 +293,43 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
       // An item from a location in our own world that went to someone else.
       if (item.player === selfSlot && receiving !== selfSlot) recordSent(item.location, item.flags);
       addHistory([
-        toHistoryRow(c, getPeople(), selfSlot, {
-          finder: item.player,
-          receiver: receiving,
-          item: item.item,
-          location: item.location,
-          flags: item.flags,
-        }),
+        toHistoryRow(
+          c,
+          getPeople(),
+          selfSlot,
+          { finder: item.player, receiver: receiving, item: item.item, location: item.location, flags: item.flags },
+          rowTime(clock.now(), 'exact'), // seen as it happened
+        ),
       ]);
     }),
   );
 
-  // Backfill: the first ReceivedItems (index 0) is everything we have been sent so far. Later
-  // ones are new finds that ItemSend already reported, with a time, so they are ignored.
+  // Backfill: the first ReceivedItems (index 0) is everything we have been sent so far, in the
+  // order we received it, so it is one exact chain. Anything in it that History lacks was received
+  // while we were away. Later packets are new finds that ItemSend already reported, so they are
+  // ignored here.
+  // What we received, as `${finder}-${location}`, to tell whether a tracker belongs to this room.
+  const receivedKeys = new Set<string>();
   c.socket.on(
     'receivedItems',
     safe((packet) => {
-      if (!isCurrent() || packet.index !== 0) return;
-      const names = getPeople();
-      addHistory(
+      if (!isCurrent()) return;
+      if (packet.index === 0) receivedKeys.clear();
+      for (const item of packet.items) if (item.location > 0) receivedKeys.add(`${item.player}-${item.location}`);
+      if (packet.index !== 0) return;
+      placeFinds([
         packet.items
           // Locations <= 0 are the starting inventory and server-granted items, not finds.
           .filter((item) => item.location > 0)
-          .map((item) =>
-            toHistoryRow(c, names, selfSlot, {
-              finder: item.player,
-              receiver: selfSlot,
-              item: item.item,
-              location: item.location,
-              flags: item.flags,
-            }),
-          ),
+          .map((item) => ({
+            finder: item.player,
+            receiver: selfSlot,
+            item: item.item,
+            location: item.location,
+            flags: item.flags,
+          })),
+        ],
+        Source.OwnReceived,
       );
     }),
   );
@@ -268,28 +371,51 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
   // Backfilled by asking the server what is in the locations we have ALREADY checked. Those items
   // were announced to the whole team when they were checked, so this reveals nothing new.
   // Unchecked locations are never requested, and an answer for one is ignored.
+  //
+  // The same answers also fill in History with the items we sent to other players. Without that,
+  // anything we found for someone else while this client was not connected (for example through
+  // another client) has no live ItemSend here and would be missing, even though the sent count
+  // includes it. Items that stayed in our own world are already covered by the ReceivedItems backfill.
+  // The answers come in the order we asked (by location id), not the order they were found, so
+  // they are gathered and placed together once all have arrived, as one list with no real order.
   let scoutsRequested = false;
   let scoutsPending = 0;
+  let sentFinds: Find[] = [];
+  const finishSent = () => {
+    finishSentBackfill();
+    placeFinds([sentFinds], Source.SentScouts);
+    sentFinds = [];
+    noteOwnCoverage(clock.now()); // our received and sent items are now all in History
+  };
   c.socket.on(
     'locationInfo',
     safe((packet) => {
       if (!isCurrent() || !scoutsRequested) return;
       for (const entry of packet.locations) {
         // In a LocationInfo packet `player` is the slot the item belongs to (the receiver).
-        if (checkedLocations.has(entry.location) && entry.player !== selfSlot) recordSent(entry.location, entry.flags);
+        if (!checkedLocations.has(entry.location) || entry.player === selfSlot) continue;
+        recordSent(entry.location, entry.flags);
+        sentFinds.push({
+          finder: selfSlot,
+          receiver: entry.player,
+          item: entry.item,
+          location: entry.location,
+          flags: entry.flags,
+        });
       }
       scoutsPending -= packet.locations.length;
       if (scoutsPending <= 0) {
         scoutsRequested = false;
-        finishSentBackfill();
+        finishSent();
       }
     }),
   );
 
   const backfillSent = () => {
     const checked = [...checkedLocations];
+    sentFinds = [];
     if (checked.length === 0) {
-      finishSentBackfill();
+      finishSent();
       return;
     }
     scoutsRequested = true;
@@ -304,6 +430,27 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
       if (isCurrent()) pushClientMessage('error', `Could not load the items you sent: ${describeError(error)}`);
     }
   };
+
+  // Backfill from the website tracker: it lists every player's received items, so it also has the
+  // finds between other players that were made while we were not connected, which the game
+  // connection never replays. Only used when the tracker is this room's: a tracker for another
+  // room (say an earlier seed with the same players) would put wrong finds in the History.
+  let trackerImportReady = false;
+  const importTrackerFinds = safe((chains: TrackerChains) => {
+    if (!isCurrent() || !trackerImportReady || chains.length === 0) return;
+
+    // What we received is known exactly, so check the tracker's copy of it. A little lag is normal
+    // (the tracker can be a couple of minutes behind); a different room disagrees almost entirely.
+    // With nothing received, there is nothing to compare, so fall back to who plays what.
+    // Nothing is tolerated in a short list; a long one may be a little ahead of us.
+    const mine = chains.flat().filter((find) => find.receiver === selfSlot);
+    const unknown = mine.filter((find) => !receivedKeys.has(`${find.finder}-${find.location}`)).length;
+    const verified = mine.length > 0 ? unknown <= Math.floor(mine.length * 0.02) : rosterCheck() === 'match';
+    if (!verified) return;
+
+    placeFinds(chains, Source.Tracker);
+    noteTeamCoverage(clock.now()); // after placing: these estimates use what was known before
+  });
 
   const updatePoints = safe(() => {
     if (isCurrent() && c.authenticated) {
@@ -320,7 +467,9 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
     'disconnected',
     safe(() => {
       rejectDropped(new Dropped());
-      if (!isCurrent() || quiet) return;
+      if (!isCurrent()) return;
+      endHistorySession(clock.now()); // from here on, finds are no longer seen live
+      if (quiet) return;
       setStatus('closed');
       pushClientMessage('error', 'Disconnected from server.');
     }),
@@ -340,6 +489,7 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
     }
 
     setStatus('connected');
+    setServerPort(portFromAddress(url));
     setIdentity({ name: c.name, game: c.game, team: selfTeam });
     pushClientMessage('client', `Connected as "${c.name}" (${c.game}).`);
     updatePoints();
@@ -353,6 +503,9 @@ export async function connect({ url, slot, password }: ConnectOptions): Promise<
       }),
     );
     backfillSent();
+    trackerImportReady = true;
+    setTrackerFindsListener(importTrackerFinds);
+    importTrackerFinds(getTrackerFinds());
     void loadHints(c, selfTeam, selfSlot, slots, isCurrent);
     void loadClientStatuses(
       c,
@@ -378,6 +531,7 @@ export function disconnect() {
   const c = client;
   if (!c) return;
   client = undefined; // from here on, every callback of this client sees it is stale
+  endHistorySession(clock.now());
   setStatus('closed');
   setHintPoints(undefined);
   pushClientMessage('client', 'Disconnected.');
@@ -418,6 +572,8 @@ export function sendText(input: string): SendResult {
 function teardown() {
   const old = client;
   client = undefined;
+  setTrackerFindsListener(undefined);
+  endHistorySession(clock.now());
   old?.socket.disconnect();
 }
 
@@ -588,6 +744,14 @@ function buildPeople(c: Client, team: number): Map<number, PlayerInfo> {
   return people;
 }
 
+/**
+ * Where an estimated History row came from, weakest first: the sent-items scouts (no useful
+ * order), our own received items (exact order, ours only), the website tracker (exact order for
+ * every receiver).
+ */
+const Source = { SentScouts: 0, OwnReceived: 1, Tracker: 2 } as const;
+type Source = (typeof Source)[keyof typeof Source];
+
 /** An item in a location: shared by hints and by the history of found items. */
 interface Find {
   /** Slot whose world holds the location. */
@@ -655,7 +819,13 @@ function toHintRow(
   };
 }
 
-function toHistoryRow(c: Client, people: Map<number, PlayerInfo>, selfSlot: number, find: Find): NewHistoryRow {
+function toHistoryRow(
+  c: Client,
+  people: Map<number, PlayerInfo>,
+  selfSlot: number,
+  find: Find,
+  time: RowTime,
+): NewHistoryRow {
   const base = describeFind(c, people, selfSlot, find);
-  return { ...base, search: searchText(base) };
+  return { ...base, ...time, itemId: find.item, locationId: find.location, search: searchText(base) };
 }

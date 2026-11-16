@@ -26,6 +26,9 @@ import { hints } from '../src/state/hints';
 import { history } from '../src/state/history';
 import { messages } from '../src/state/messages';
 import { checks, clientStatuses, findsSeen, received, room, sent } from '../src/state/stats';
+import { TRACKER_LAG_MS } from '../src/state/historyStore';
+import { clock } from '../src/state/timing';
+import { publishTrackerFinds } from '../src/state/tracker';
 import { until, wait } from './helpers';
 
 setDefaultTimeout(60_000);
@@ -61,6 +64,8 @@ const myLocations: Record<number, { item: number; player: number; flags: number 
 };
 let connectedChecked: number[] = [10];
 let connectedMissing: number[] = [11, 12];
+/** More items in Alice's full sync, as if received while the client was away. */
+let extraReceived: { item: number; location: number; player: number; flags: number }[] = [];
 const scoutRequests: { locations: number[]; createAsHint: unknown }[] = [];
 const rangeFrom = (n: number, from: number) => Array.from({ length: n }, (_, i) => from + i);
 
@@ -116,14 +121,14 @@ const server = Bun.serve({
             ws.close();
             continue;
           }
-          if (p.name !== 'Alice') {
+          if (p.name !== 'Alice' && p.name !== 'Bob') {
             send(ws, { cmd: 'ConnectionRefused', errors: ['InvalidSlot'] });
             continue;
           }
           send(
             ws,
             {
-              cmd: 'Connected', team: 0, slot: 1,
+              cmd: 'Connected', team: 0, slot: p.name === 'Bob' ? 2 : 1, // Bob only for the per-slot History test
               players: [
                 { team: 0, slot: 1, alias: 'Alice', name: 'Alice' },
                 { team: 0, slot: 2, alias: 'Bob', name: 'Bob' },
@@ -140,7 +145,7 @@ const server = Bun.serve({
             // Key found by Bob for Alice (a real find), plus a starting item granted by the server (location -2).
             {
               cmd: 'ReceivedItems', index: 0,
-              items: [{ item: 2, location: 11, player: 2, flags: 2 }, { item: 1, location: -2, player: 0, flags: 0 }],
+              items: [{ item: 2, location: 11, player: 2, flags: 2 }, { item: 1, location: -2, player: 0, flags: 0 }, ...extraReceived],
             },
             { cmd: 'PrintJSON', type: 'Join', team: 0, slot: 1, tags: ['TextOnly'], data: [{ type: 'player_id', text: '1' }, { text: ' (Team #1) viewing.' }] },
             itemSend(2, 1, 1, 10, 1),
@@ -211,7 +216,7 @@ describe('login and the log', () => {
     await loginAsAlice();
     expect(
       await settledAfterLogin(
-        () => hist().length === 2 && findsSeen() === 1 && dump().some((l) => l.includes('untyped message')),
+        () => hist().length === 3 && findsSeen() === 1 && dump().some((l) => l.includes('untyped message')),
       ),
     ).toBe(true);
     expect(identity()).toMatchObject({ name: 'Alice', game: 'Test Game' });
@@ -285,48 +290,59 @@ describe('stats from login', () => {
 });
 
 describe('history: backfill and live', () => {
-  test('has the backfilled find and the live one, and skips the starting item', () => {
-    expect(hist().map((r) => r.id)).toEqual(['2-11', '2-10']);
+  test('has the received find, the live one and the item I sent, and skips the starting item', () => {
+    expect(hist().map((r) => r.id).sort()).toEqual(['1-10', '2-10', '2-11']);
+  });
+
+  test('the item I sent is backfilled from my checked locations: Sword from me to Bob', () => {
+    expect(hist().find((r) => r.id === '1-10')).toMatchObject({
+      itemName: 'Sword', finderName: 'Alice', receiverName: 'Bob', itemFlags: 1, fromMe: true, forMe: false,
+    });
   });
 
   test('backfilled row: Key from Bob to me', () => {
-    expect(hist().find((r) => r.id === '2-11')).toMatchObject({
-      itemName: 'Key', finderName: 'Bob', forMe: true, seq: 1,
-    });
+    expect(hist().find((r) => r.id === '2-11')).toMatchObject({ itemName: 'Key', finderName: 'Bob', forMe: true });
   });
 
-  test('live row: names, flags and order', () => {
-    expect(hist().find((r) => r.id === '2-10')).toMatchObject({
-      itemName: 'Sword', locationName: 'Chest A', receiverName: 'Alice', itemFlags: 1, seq: 2,
-    });
+  test('live row: names, flags and the time it was seen', () => {
+    const row = hist().find((r) => r.id === '2-10')!;
+    expect(row).toMatchObject({ itemName: 'Sword', locationName: 'Chest A', receiverName: 'Alice', itemFlags: 1, timeKind: 'exact' });
+    expect(Math.abs(row.time - Date.now())).toBeLessThan(60_000);
+    expect(row.timeLabel).not.toBe('earlier');
   });
 
-  test('rows carry no time (the protocol has none)', () => {
-    for (const row of hist()) expect(row).not.toHaveProperty('timeLabel');
+  test('on the first connect to a room, what came before has no known time and sorts first', () => {
+    for (const id of ['2-11', '1-10']) {
+      expect(hist().find((r) => r.id === id)).toMatchObject({ timeKind: 'unknown', timeLabel: 'earlier' });
+    }
+    expect(hist().map((r) => r.id)).toEqual(['2-11', '1-10', '2-10']); // the History is kept in time order
   });
 
   test('records a find that does not involve me', async () => {
+    const before = hist().length;
     broadcast(itemSend(3, 2, 2, 12, 0)); // Carol -> Bob
     expect(await until(() => hist().some((r) => r.id === '3-12'))).toBe(true);
     expect(hist().find((r) => r.id === '3-12')).toMatchObject({
       finderName: 'Carol', receiverName: 'Bob', forMe: false, fromMe: false,
     });
-    expect(hist()).toHaveLength(3);
+    expect(hist()).toHaveLength(before + 1);
   });
 
   test('an exact duplicate gives one row', async () => {
+    const before = hist().length;
     broadcast(itemSend(3, 2, 2, 12, 0)); // the same find again
     broadcast(itemSend(3, 2, 1, 900, 0)); // then a new one, to know the duplicate was handled
     expect(await until(() => hist().some((r) => r.id === '3-900'))).toBe(true);
-    expect(hist()).toHaveLength(4); // 3 before, plus only the new one
+    expect(hist()).toHaveLength(before + 1); // only the new one was added
   });
 
   test('a ReceivedItems packet with index > 0 is not a find', async () => {
+    const before = hist().length;
     broadcast({ cmd: 'ReceivedItems', index: 2, items: [{ item: 1, location: 13, player: 3, flags: 0 }] });
     broadcast(itemSend(3, 2, 1, 901, 0)); // a real find after it
     expect(await until(() => hist().some((r) => r.id === '3-901'))).toBe(true);
     expect(hist().some((r) => r.id === '3-13')).toBe(false);
-    expect(hist()).toHaveLength(5);
+    expect(hist()).toHaveLength(before + 1);
   });
 });
 
@@ -421,7 +437,10 @@ describe('a burst of finds (like !release)', () => {
     for (let i = 0; i < 2000; i++) burst.push(itemSend(3, 2, (i % 2) + 1, 1000 + i, i % 5 === 0 ? 1 : 0));
     broadcast(...burst);
     expect(await until(() => hist().length === before + 2000, 15_000)).toBe(true);
-    expect(hist().every((r, i) => i === 0 || r.seq > hist()[i - 1].seq)).toBe(true);
+    // The burst keeps the order it was sent in, and the History stays in time order.
+    const burstIds = hist().filter((r) => r.finderSlot === 3 && r.locationId >= 1000 && r.locationId < 3000).map((r) => r.id);
+    expect(burstIds).toEqual(burst.map((_, i) => `3-${1000 + i}`));
+    expect(hist().every((r, i) => i === 0 || r.time >= hist()[i - 1].time)).toBe(true);
   });
 });
 
@@ -453,9 +472,97 @@ describe('reconnecting', () => {
     await wait(50);
     seed = 'seed-two';
     await loginAsAlice();
+    expect(await settledAfterLogin(() => hist().length === 3)).toBe(true);
+    expect(hist().map((r) => r.id)).toEqual(['2-11', '1-10', '2-10']);
+    expect(hist().map((r) => r.seq).sort()).toEqual([1, 2, 3]); // the numbering restarts at 1
+  });
+});
+
+describe('history: kept between runs, and gaps filled', () => {
+  const mineFromBob = { finder: 2, receiver: 1, location: 11, item: 2, flags: 2 };
+  const sentToBob = { finder: 1, receiver: 2, location: 10, item: 1, flags: 1 };
+  const timesOf = () => hist().map((r) => ({ id: r.id, time: r.time, timeKind: r.timeKind }));
+
+  test('the History is saved per room and comes back, with names, when that room is joined again', async () => {
+    const before = timesOf();
+    disconnect();
+    await wait(50);
+    seed = 'seed-three';
+    await loginAsAlice();
+    expect(await settledAfterLogin(() => hist().length === 3)).toBe(true);
+    // Another room: the same mock items, but its own History, seen live just now.
+    expect(hist().find((r) => r.id === '2-10')!.time).toBeGreaterThan(before.find((r) => r.id === '2-10')!.time);
+
+    disconnect();
+    await wait(50);
+    seed = 'seed-two';
+    await loginAsAlice();
+    expect(await settledAfterLogin(() => hist().length === before.length)).toBe(true);
+    expect(timesOf()).toEqual(before);
+    expect(hist().find((r) => r.id === '2-10')).toMatchObject({ itemName: 'Sword', finderName: 'Bob', receiverName: 'Alice' });
+  });
+
+  test('another slot in the same room has its own History, with its own items marked as its own', async () => {
+    const aliceRows = hist().length;
+    disconnect();
+    await wait(50);
+    await connect({ url, slot: 'Bob', password: '' });
+    // As Bob: his own received item and the one seen live as he connected (he found it for Alice).
     expect(await settledAfterLogin(() => hist().length === 2)).toBe(true);
-    expect(hist().map((r) => r.id)).toEqual(['2-11', '2-10']);
-    expect(hist().map((r) => r.seq)).toEqual([1, 2]); // the order restarts at 1
+    expect(hist().find((r) => r.id === '2-10')).toMatchObject({ fromMe: true, forMe: false });
+
+    disconnect();
+    await wait(50);
+    await loginAsAlice();
+    expect(await settledAfterLogin(() => hist().length === aliceRows)).toBe(true);
+    expect(hist().find((r) => r.id === '2-10')).toMatchObject({ fromMe: false, forMe: true });
+  });
+
+  test("finds made while away are placed in that gap, each receiver's list in its real order", async () => {
+    // The clock is set so the gap is exact. It is ahead of the real one, so it never overlaps a
+    // connection made earlier in this file.
+    let now = Date.now() + 1_000_000;
+    clock.now = () => now;
+    try {
+      // A connection at a known time, and a tracker import that matches this room and is new
+      // enough to cover it: from then on the whole team's History is complete.
+      disconnect();
+      await wait(50);
+      await loginAsAlice();
+      expect(await settledAfterLogin()).toBe(true);
+      now += TRACKER_LAG_MS + 1000;
+      publishTrackerFinds([[mineFromBob], [sentToBob]]);
+      now += 1000;
+      const leftAt = now;
+      disconnect();
+      await wait(50);
+
+      // A minute away. Carol found something for Alice, which Alice's own item sync reports...
+      now += 60_000;
+      extraReceived = [{ item: 1, location: 12, player: 3, flags: 0 }];
+      await loginAsAlice();
+      expect(await settledAfterLogin(() => hist().some((r) => r.id === '3-12'))).toBe(true);
+      const row = (id: string) => hist().find((r) => r.id === id);
+      expect(row('3-12')).toMatchObject({ timeKind: 'estimated', time: leftAt + 30_000, finderName: 'Carol' });
+      expect(row('3-12')!.timeLabel.startsWith('≈')).toBe(true);
+
+      // ...and two things for Bob, which only the tracker knows. They go in the same gap, in Bob's order.
+      publishTrackerFinds([
+        [mineFromBob, { finder: 3, receiver: 1, location: 12, item: 1, flags: 0 }],
+        [sentToBob, { finder: 3, receiver: 2, location: 70, item: 1, flags: 0 }, { finder: 3, receiver: 2, location: 71, item: 2, flags: 0 }],
+      ]);
+      expect(await until(() => row('3-71') !== undefined)).toBe(true);
+      expect(row('3-70')).toMatchObject({ timeKind: 'estimated', time: leftAt + 15_000, receiverName: 'Bob' });
+      expect(row('3-71')).toMatchObject({ timeKind: 'estimated', time: leftAt + 45_000, receiverName: 'Bob' });
+      expect(row('3-12')).toMatchObject({ time: leftAt + 30_000 }); // placed again by the tracker: the same
+
+      const times = hist().map((r) => r.time);
+      for (let i = 1; i < times.length; i++) expect(times[i]).toBeGreaterThanOrEqual(times[i - 1]);
+    } finally {
+      clock.now = () => Date.now();
+      extraReceived = [];
+      publishTrackerFinds([]);
+    }
   });
 });
 
@@ -502,6 +609,27 @@ describe('items sent', () => {
     expect(sent()).toEqual({ total: 1, progression: 1, useful: 0, trap: 0, filler: 0 });
   });
 
+  test('an item sent while this client was disconnected is in History after reconnecting', async () => {
+    disconnect();
+    await wait(50);
+    // We checked location 20 (an item for Bob) through another client while the text client was away,
+    // so no live ItemSend for it was ever seen here.
+    myLocations[20] = { item: 2, player: 2, flags: 2 };
+    connectedChecked = [10, 20];
+    try {
+      await loginAsAlice();
+      expect(await settledAfterLogin(() => hist().some((r) => r.id === '1-20'))).toBe(true);
+      expect(hist().find((r) => r.id === '1-20')).toMatchObject({
+        finderName: 'Alice', receiverName: 'Bob', itemName: 'Key', itemFlags: 2, fromMe: true, forMe: false,
+        timeKind: 'estimated', // our own items are complete from the last connection, so it lies after that
+      });
+      expect(hist().filter((r) => r.id === '1-10')).toHaveLength(1); // the one already there is not duplicated
+    } finally {
+      delete myLocations[20];
+      connectedChecked = [10];
+    }
+  });
+
   test('a lot of checked locations are scouted in packets of at most 2000', async () => {
     disconnect();
     await wait(50);
@@ -520,6 +648,49 @@ describe('items sent', () => {
       connectedChecked = [10];
       connectedMissing = [11, 12];
     }
+  });
+});
+
+describe('history: backfill from the website tracker', () => {
+  // The tracker lists every player's received items, so it knows finds between other players that
+  // were made while this client was away. It is only trusted when what it says Alice received
+  // matches what the game connection told us she received (location 11, from Bob).
+  const mineFromBob = { finder: 2, receiver: 1, location: 11, item: 2, flags: 2 };
+  const bobGotSwordFromCarol = { finder: 3, receiver: 2, location: 50, item: 1, flags: 1 };
+
+  test('adds finds that do not involve me, with names and flags, and does not duplicate the ones I know', async () => {
+    publishTrackerFinds([[mineFromBob], [bobGotSwordFromCarol]]);
+    expect(await until(() => hist().some((r) => r.id === '3-50'))).toBe(true);
+    expect(hist().find((r) => r.id === '3-50')).toMatchObject({
+      finderName: 'Carol', receiverName: 'Bob', itemName: 'Sword', itemFlags: 1, forMe: false, fromMe: false,
+    });
+    expect(hist().filter((r) => r.id === '2-11')).toHaveLength(1);
+  });
+
+  test('a tracker that disagrees with what I received is ignored (it is another room)', async () => {
+    publishTrackerFinds([
+      [{ finder: 2, receiver: 1, location: 999, item: 1, flags: 0 }], // I never received this
+      [{ finder: 3, receiver: 2, location: 998, item: 1, flags: 0 }],
+    ]);
+    publishTrackerFinds([[mineFromBob], [{ finder: 3, receiver: 2, location: 51, item: 1, flags: 0 }]]); // then a good one
+    expect(await until(() => hist().some((r) => r.id === '3-51'))).toBe(true);
+    expect(hist().some((r) => r.id === '3-998' || r.id === '2-999')).toBe(false);
+  });
+
+  test('a repeat poll adds only what is new', async () => {
+    const before = hist().length;
+    publishTrackerFinds([[mineFromBob], [bobGotSwordFromCarol, { finder: 3, receiver: 2, location: 52, item: 1, flags: 0 }]]);
+    expect(await until(() => hist().some((r) => r.id === '3-52'))).toBe(true);
+    expect(hist().length).toBe(before + 1);
+  });
+
+  test('finds loaded before connecting are applied once connected', async () => {
+    disconnect();
+    await wait(50);
+    publishTrackerFinds([[mineFromBob], [{ finder: 3, receiver: 2, location: 53, item: 1, flags: 0 }]]);
+    await loginAsAlice();
+    expect(await settledAfterLogin(() => hist().some((r) => r.id === '3-53'))).toBe(true);
+    publishTrackerFinds([]);
   });
 });
 

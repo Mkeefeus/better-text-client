@@ -44,9 +44,17 @@ function compareBy(key: HistorySortKey): (a: HistoryRow, b: HistoryRow) => numbe
     case 'receiver':
       return (a, b) => compareText(a.receiverName, b.receiverName);
     default:
-      return (a, b) => a.seq - b.seq;
+      return (a, b) => a.time - b.time || a.seq - b.seq;
   }
 }
+
+const TIME_TITLES = {
+  exact: 'Seen as it happened.',
+  estimated:
+    'Estimated: found while this client was not connected. It is placed in that gap, after the items this player had received before it and before the ones received after it, which is their real order.',
+  unknown:
+    'Found at a time that is not known: before this client first connected to the room, or while it was away with nothing recorded to place it by.',
+} as const;
 
 export default function HistoryView() {
   let searchElement!: HTMLInputElement;
@@ -65,7 +73,7 @@ export default function HistoryView() {
     return frozen === undefined ? 0 : newestSeq() - frozen;
   };
   /** Oldest-first by time appends at the bottom, which never moves what is being read. */
-  const canFreeze = () => !(historySortKey() === 'order' && historySortDir() === 'asc');
+  const canFreeze = () => !(historySortKey() === 'time' && historySortDir() === 'asc');
 
   const visible = createMemo(() => {
     const limit = frozenSeq();
@@ -86,8 +94,8 @@ export default function HistoryView() {
 
     const key = historySortKey();
     const descending = historySortDir() === 'desc';
-    if (key === 'order') {
-      // The history is already in order, so newest-first is just the reverse.
+    if (key === 'time') {
+      // The history is kept in time order, so newest-first is just the reverse.
       return descending ? rows.reverse() : rows;
     }
     const compare = compareBy(key);
@@ -122,8 +130,8 @@ export default function HistoryView() {
       setHistorySortDir(historySortDir() === 'asc' ? 'desc' : 'asc');
     } else {
       setHistorySortKey(key);
-      // Newest first is the useful way to read the order column; names read best A to Z.
-      setHistorySortDir(key === 'order' ? 'desc' : 'asc');
+      // Newest first is the useful way to read the time column; names read best A to Z.
+      setHistorySortDir(key === 'time' ? 'desc' : 'asc');
     }
   }
 
@@ -199,8 +207,9 @@ export default function HistoryView() {
 
       {/* A fixed line, so it never shifts the table. */}
       <p class="hist-note">
-        Items found by other players are recorded from the moment you connect. Items you have received are listed in
-        full. Order counts items in this list, oldest first.
+        Finds seen while connected keep their real time, and the list is kept between runs. Finds made while this
+        client was away are filled in when it reconnects, at an estimated time (≈): your own received and sent items
+        always, other players’ only with the room link set at the top. Each player’s items stay in their real order.
       </p>
 
       <div class="hist-wrap">
@@ -220,10 +229,10 @@ export default function HistoryView() {
             <div class="hist-inner">
               <div class="hist-head">
                 <HeaderCell
-                  key="order"
-                  title="1 is the oldest item in this list. The list holds your received items plus finds seen since you connected."
+                  key="time"
+                  title="When it was found. Exact for finds seen while connected; ≈ marks an estimate for finds made while this client was away; “earlier” means the time is not known."
                 >
-                  Order
+                  Time
                 </HeaderCell>
                 <HeaderCell key="item">Item</HeaderCell>
                 <HeaderCell key="location">Location</HeaderCell>
@@ -242,7 +251,9 @@ export default function HistoryView() {
                         <Show when={row()}>
                           {(r) => (
                             <>
-                              <div class="cell order">{r().seq}</div>
+                              <div class={`cell time ${r().timeKind}`} title={TIME_TITLES[r().timeKind]}>
+                                {r().timeLabel}
+                              </div>
                               <div class="cell" title={`${r().itemName} (${r().receiverGame})`}>
                                 <span class={itemClass(r().itemFlags)}>{r().itemName}</span>
                               </div>
